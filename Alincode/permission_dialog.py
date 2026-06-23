@@ -1,0 +1,1 @@
+"""Permission request dialog -- handles tool-use permission prompts and allow/deny decisions."""

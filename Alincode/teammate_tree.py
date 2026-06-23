@@ -1,0 +1,1 @@
+"""Teammate tree UI component -- displays agent hierarchy and status in a tree widget."""

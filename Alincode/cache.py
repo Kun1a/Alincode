@@ -1,0 +1,1 @@
+"""Caching layer -- manages response cache, session state, and persistent storage."""

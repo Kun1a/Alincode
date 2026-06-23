@@ -1,0 +1,1 @@
+"""Ask-user confirmation dialog -- prompts the user for decisions during interactive workflows."""

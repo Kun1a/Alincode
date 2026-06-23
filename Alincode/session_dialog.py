@@ -1,0 +1,1 @@
+"""Session management dialog -- session list, resume, and delete operations."""

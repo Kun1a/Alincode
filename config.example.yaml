@@ -1,5 +1,5 @@
-# MewCode 配置文件示例
-# 复制为 config.yaml 并填入真实的 API 信息
+# AlinCode 配置文件示例
+# 复制为 config.yaml 或 .Alincode/skills/config.yaml 并填入真实的 API 信息
 
 # protocol: 协议类型，可选 "anthropic" 或 "openai"
 protocol: openai

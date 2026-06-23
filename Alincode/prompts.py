@@ -1,0 +1,1 @@
+"""Prompt template library -- system prompts, tool descriptions, and formatting utilities."""

@@ -1,0 +1,1 @@
+"""Agent orchestration logic -- manages sub-agents, task delegation, and agent lifecycle."""

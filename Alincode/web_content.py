@@ -1,0 +1,1 @@
+"""Web content fetching -- retrieves and parses web pages for use as context."""

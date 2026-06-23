@@ -1,0 +1,70 @@
+/* mewcode/styles.tcss — Claude Code 风格暗色主题 */
+
+Screen {
+    background: #1a1a1a;
+    color: #d0d0d0;
+}
+
+Header {
+    background: #1a1a1a;
+    color: #00d7d7;
+    text-style: bold;
+    height: 1;
+}
+
+Footer {
+    background: #1a1a1a;
+    color: #767676;
+    height: 1;
+}
+
+#chat-log {
+    background: #1a1a1a;
+    color: #d0d0d0;
+    border: none;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+#chat-log:focus {
+    border: none;
+}
+
+#message-input {
+    background: #2a2a2a;
+    color: #d0d0d0;
+    border: none;
+    padding: 0 1;
+    min-height: 3;
+    max-height: 8;
+}
+
+#message-input:focus {
+    border: none;
+}
+
+/* ── Message styles (applied via Rich Text objects) ── */
+.user {
+    color: #00d700;
+    text-style: bold;
+}
+
+.assistant {
+    color: #5f87ff;
+    text-style: bold;
+}
+
+.thinking {
+    color: #767676;
+    text-style: italic;
+}
+
+.info {
+    color: #767676;
+    text-style: italic;
+}
+
+.error {
+    color: #ff5555;
+    text-style: bold;
+}

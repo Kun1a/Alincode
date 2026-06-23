@@ -1,0 +1,25 @@
+[project]
+name = "alincode"
+version = "0.2.0"
+description = "Terminal AI coding assistant"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.111.0",
+    "openai>=1.0.0",
+    "pyyaml>=6.0.3",
+    "textual>=1.0.0",
+]
+
+[project.scripts]
+alincode = "Alincode.__main__:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["Alincode*"]
+
+[tool.setuptools.package-data]
+Alincode = ["*.tcss"]

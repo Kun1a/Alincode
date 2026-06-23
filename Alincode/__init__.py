@@ -1,0 +1,1 @@
+"""AlinCode -- Terminal AI coding assistant."""
