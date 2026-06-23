@@ -1,0 +1,14 @@
+# 配置文件（含 API key）
+config.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 虚拟环境
+venv/
+.venv/
+
+# IDE
+.idea/
