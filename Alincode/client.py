@@ -1,35 +1,31 @@
 """Client 模块：LLM Provider 抽象层与具体实现（Anthropic / OpenAI）。"""
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, List
+from typing import Any, AsyncIterator, List
+import json
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from Alincode.config import ProviderConfig
-from Alincode.conversation import Message
+from Alincode.conversation import (
+    Message,
+    StreamEvent,
+    ToolCall,
+    ToolDefinition,
+    ROLE_USER,
+    ROLE_ASSISTANT,
+    ROLE_TOOL,
+    ROLE_SYSTEM,
+)
 
 
-# ── Abstract base ─────────────────────────────────────────────────
+# ── Provider 接口 ─────────────────────────────────────
 
 class BaseProvider(ABC):
-    """LLM Provider 抽象基类。
-
-    所有 LLM 后端通过继承此类来接入，核心是 chat() 方法返回异步 token 迭代器。
-    """
-
-    @abstractmethod
-    async def chat(self, messages: List[Message], model: str) -> AsyncIterator[str]:
-        """发送对话历史给 LLM，异步流式返回 token。
-
-        Args:
-            messages: 完整对话历史（含本次 user 消息）
-            model: 模型名，可由调用方覆盖配置中的值
-
-        Yields:
-            每个 token 字符串（可能包含特殊标记如 [THINKING]）
-        """
-        ...
+    """LLM Provider 抽象基类。"""
 
     @property
     @abstractmethod
@@ -37,10 +33,25 @@ class BaseProvider(ABC):
         """Provider 标识名，如 "anthropic"、"openai"。"""
         ...
 
+    @abstractmethod
+    async def stream(
+        self,
+        messages: List[Message],
+        model: str,
+        tools: List[ToolDefinition],
+    ) -> AsyncIterator[StreamEvent]:
+        """发送对话历史给 LLM，异步流式返回 StreamEvent。
+
+        Args:
+            messages: 完整对话历史（含本次 user 消息）
+            model: 模型名
+            tools: 工具定义列表（空列表表示不带工具）
+        """
+        ...
+
 
 # ── Anthropic provider ────────────────────────────────────────────
 
-# 启用 extended thinking 的请求参数，budget_tokens 设为 4000
 THINKING_CONFIG = {
     "type": "enabled",
     "budget_tokens": 4000,
@@ -48,10 +59,7 @@ THINKING_CONFIG = {
 
 
 class AnthropicProvider(BaseProvider):
-    """Anthropic 协议实现，使用 AsyncAnthropic 客户端进行流式对话。
-
-    extended thinking 默认启用，思考过程以 [THINKING]...[/THINKING] 包裹输出。
-    """
+    """Anthropic 协议实现，支持工具调用与 extended thinking。"""
 
     def __init__(self, config: ProviderConfig) -> None:
         self._client = AsyncAnthropic(
@@ -63,66 +71,61 @@ class AnthropicProvider(BaseProvider):
     def provider_name(self) -> str:
         return "anthropic"
 
-    async def chat(self, messages: List[Message], model: str) -> AsyncIterator[str]:
-        """调用 Anthropic Messages API，流式返回 token。
+    async def stream(
+        self,
+        messages: List[Message],
+        model: str,
+        tools: List[ToolDefinition],
+    ) -> AsyncIterator[StreamEvent]:
+        """调用 Anthropic Messages API，流式返回 StreamEvent。"""
+        params: dict[str, Any] = {
+            "model": model,
+            "max_tokens": 8192,
+            "system": _extract_system_prompt(messages),
+            "messages": _to_anthropic_messages(messages),
+        }
 
-        Args:
-            messages: 对话历史
-            model: 模型名
+        # 注入工具定义
+        if tools:
+            params["tools"] = _to_anthropic_tools(tools)
 
-        Yields:
-            文本 token 字符串；思考过程以 [THINKING] 和 [/THINKING] 包裹。
-        """
+        # 含工具历史的请求关闭 thinking（避免 400）
+        if not _has_tool_history(messages):
+            params["thinking"] = THINKING_CONFIG
+
         try:
-            async with self._client.messages.stream(
-                model=model,
-                max_tokens=8192,
-                system=self._extract_system_prompt(messages),
-                messages=self._to_anthropic_messages(messages),
-                thinking=THINKING_CONFIG,
-            ) as stream:
-                in_thinking = False
+            async with self._client.messages.stream(**params) as stream:
                 async for event in stream:
-                    if event.type == "text":
-                        if in_thinking:
-                            yield "[/THINKING]"
-                            in_thinking = False
-                        yield event.text
-                    elif event.type == "thinking_delta":
-                        if not in_thinking:
-                            yield "[THINKING]"
-                            in_thinking = True
-                        yield event.thinking
-                    elif event.type == "thinking_done":
-                        if in_thinking:
-                            yield "[/THINKING]"
-                            in_thinking = False
+                    if event.type == "content_block_delta":
+                        delta = event.delta
+                        if delta.type == "text_delta":
+                            yield StreamEvent(text=delta.text)
+                        # thinking_delta / input_json_delta 跳过
+                        # （SDK 内部累加器保留完整 input JSON）
 
-                if in_thinking:
-                    yield "[/THINKING]"
+                # 流结束后取汇总，检查是否有 tool_use
+                final_message = await stream.get_final_message()
+                if final_message.stop_reason == "tool_use":
+                    calls = []
+                    for block in final_message.content:
+                        if block.type == "tool_use":
+                            calls.append(ToolCall(
+                                id=block.id,
+                                name=block.name,
+                                input=_safe_json_dumps(block.input),
+                            ))
+                    if calls:
+                        yield StreamEvent(tool_calls=calls)
+
+                yield StreamEvent(done=True)
 
         except Exception as e:
-            print(f"\n[Anthropic 错误] {e}")
+            yield StreamEvent(err=e)
+            yield StreamEvent(done=True)
 
-    def _to_anthropic_messages(self, messages: List[Message]) -> List[dict]:
-        """将内部 Message 列表转换为 Anthropic API 格式。"""
-        result = []
-        for msg in messages:
-            if msg.role == "system":
-                continue
-            result.append({"role": msg.role, "content": msg.content})
-        return result
-
-    def _extract_system_prompt(self, messages: List[Message]) -> str:
-        """提取 system 角色的消息内容作为 system prompt。"""
-        parts = [msg.content for msg in messages if msg.role == "system"]
-        return "\n".join(parts) if parts else ""
-
-
-# ── OpenAI provider ───────────────────────────────────────────────
 
 class OpenAIProvider(BaseProvider):
-    """OpenAI 协议实现，使用 AsyncOpenAI 客户端进行流式对话。"""
+    """OpenAI 协议实现，支持工具调用。"""
 
     def __init__(self, config: ProviderConfig) -> None:
         self._client = AsyncOpenAI(
@@ -134,33 +137,188 @@ class OpenAIProvider(BaseProvider):
     def provider_name(self) -> str:
         return "openai"
 
-    async def chat(self, messages: List[Message], model: str) -> AsyncIterator[str]:
-        """调用 OpenAI Chat Completions API，流式返回 token。
+    async def stream(
+        self,
+        messages: List[Message],
+        model: str,
+        tools: List[ToolDefinition],
+    ) -> AsyncIterator[StreamEvent]:
+        """调用 OpenAI Chat Completions API，流式返回 StreamEvent。"""
+        params: dict[str, Any] = {
+            "model": model,
+            "messages": _to_openai_messages(messages),
+            "stream": True,
+        }
 
-        Args:
-            messages: 对话历史
-            model: 模型名
+        # 注入工具定义
+        if tools:
+            params["tools"] = _to_openai_tools(tools)
 
-        Yields:
-            每个内容 token 字符串
-        """
         try:
-            async with self._client.chat.completions.stream(
-                model=model,
-                messages=self._to_openai_messages(messages),
-            ) as stream:
-                async for event in stream:
-                    if event.type == "content.delta":
-                        yield event.delta
-        except Exception as e:
-            print(f"\n[OpenAI 错误] {e}")
+            tool_calls_buf: dict[int, dict[str, str]] = {}
+            async for chunk in await self._client.chat.completions.create(**params):
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
 
-    def _to_openai_messages(self, messages: List[Message]) -> List[dict]:
-        """将内部 Message 列表转换为 OpenAI API 格式。"""
-        return [
-            {"role": msg.role, "content": msg.content}
-            for msg in messages
-        ]
+                # 正文增量
+                if delta.content:
+                    yield StreamEvent(text=delta.content)
+
+                # 工具调用增量
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index
+                        if idx not in tool_calls_buf:
+                            tool_calls_buf[idx] = {"id": "", "name": "", "args": ""}
+                        if tc.id:
+                            tool_calls_buf[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tool_calls_buf[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tool_calls_buf[idx]["args"] += tc.function.arguments
+
+            # 流结束后组装 tool_calls
+            if tool_calls_buf:
+                calls = []
+                for idx in sorted(tool_calls_buf.keys()):
+                    v = tool_calls_buf[idx]
+                    args = v.get("args", "") or "{}"
+                    calls.append(ToolCall(
+                        id=v.get("id", ""),
+                        name=v.get("name", ""),
+                        input=args,
+                    ))
+                yield StreamEvent(tool_calls=calls)
+
+            yield StreamEvent(done=True)
+
+        except Exception as e:
+            yield StreamEvent(err=e)
+            yield StreamEvent(done=True)
+
+
+# ── 工具辅助函数 ──────────────────────────────────────────
+
+def _to_anthropic_tools(tools: List[ToolDefinition]) -> List[dict]:
+    """将 ToolDefinition 列表转为 Anthropic 工具格式。"""
+    return [
+        {
+            "name": t.name,
+            "description": t.description,
+            "input_schema": t.input_schema,
+        }
+        for t in tools
+    ]
+
+
+def _to_openai_tools(tools: List[ToolDefinition]) -> List[dict]:
+    """将 ToolDefinition 列表转为 OpenAI 工具格式。"""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description,
+                "parameters": t.input_schema,
+            },
+        }
+        for t in tools
+    ]
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """安全序列化为 JSON 字符串，失败时返回空对象字符串。"""
+    try:
+        return json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        return "{}"
+
+
+def _extract_system_prompt(messages: List[Message]) -> str:
+    """提取 system 角色的消息内容作为 system prompt。"""
+    parts = [msg.content for msg in messages if msg.role == ROLE_SYSTEM]
+    return "\n".join(parts) if parts else ""
+
+
+def _has_tool_history(messages: List[Message]) -> bool:
+    """检查消息历史中是否包含工具交互——有则对续答请求关闭 thinking。"""
+    for msg in messages:
+        if msg.role == ROLE_TOOL:
+            return True
+        if msg.role == ROLE_ASSISTANT and msg.tool_calls:
+            return True
+    return False
+
+
+def _to_anthropic_messages(messages: List[Message]) -> List[dict]:
+    """将内部 Message 列表转换为 Anthropic API 格式。"""
+    result = []
+    for msg in messages:
+        if msg.role == ROLE_SYSTEM:
+            continue
+        elif msg.role == ROLE_USER:
+            result.append({"role": "user", "content": msg.content or ""})
+        elif msg.role == ROLE_ASSISTANT:
+            if msg.tool_calls:
+                content_blocks: list[dict[str, Any]] = []
+                if msg.content:
+                    content_blocks.append({"type": "text", "text": msg.content})
+                for c in msg.tool_calls:
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": c.id,
+                        "name": c.name,
+                        "input": json.loads(c.input),
+                    })
+                result.append({"role": "assistant", "content": content_blocks})
+            else:
+                result.append({"role": "assistant", "content": msg.content or ""})
+        elif msg.role == ROLE_TOOL:
+            tool_result_blocks = []
+            for r in (msg.tool_results or []):
+                tool_result_blocks.append({
+                    "type": "tool_result",
+                    "tool_use_id": r.tool_call_id,
+                    "content": r.content,
+                    "is_error": r.is_error,
+                })
+            result.append({"role": "user", "content": tool_result_blocks})
+    return result
+
+
+def _to_openai_messages(messages: List[Message]) -> List[dict]:
+    """将内部 Message 列表转换为 OpenAI API 格式。"""
+    result = []
+    for msg in messages:
+        if msg.role == ROLE_USER:
+            result.append({"role": "user", "content": msg.content or ""})
+        elif msg.role == ROLE_ASSISTANT:
+            entry: dict[str, Any] = {"role": "assistant", "content": msg.content or None}
+            if msg.tool_calls:
+                entry["tool_calls"] = [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {
+                            "name": c.name,
+                            "arguments": c.input or "{}",
+                        },
+                    }
+                    for c in msg.tool_calls
+                ]
+            result.append(entry)
+        elif msg.role == ROLE_SYSTEM:
+            result.append({"role": "system", "content": msg.content or ""})
+        elif msg.role == ROLE_TOOL:
+            for r in (msg.tool_results or []):
+                result.append({
+                    "role": "tool",
+                    "tool_call_id": r.tool_call_id,
+                    "content": r.content,
+                })
+    return result
 
 
 # ── Factory ───────────────────────────────────────────────────────
