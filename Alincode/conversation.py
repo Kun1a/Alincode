@@ -13,6 +13,14 @@ ROLE_SYSTEM = "system"
 ROLE_TOOL = "tool"  # 携带工具执行结果的回合
 
 
+# ── 停止 / 提示常量 ────────────────────────────────────────
+
+NOTICE_MAX_ITER = "已达到最大迭代轮数，本轮停止。"
+NOTICE_UNKNOWN_TOOLS = "连续请求未知工具，本轮停止。"
+NOTICE_CANCELLED = "本轮已被取消。"
+NOTICE_PROVIDER_ERROR = "LLM 请求出错，本轮停止。"
+
+
 # ── 工具相关类型 ──────────────────────────────────────────
 
 @dataclass
@@ -40,15 +48,18 @@ class ToolDefinition:
 
 
 @dataclass
-class StreamEvent:
-    """流式事件——text 增量 / tool_calls / done / err 四态语义。
+class Usage:
+    """单次 LLM 请求的 token 用量。"""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
-    一次 LLM 回复依次产出 0-N 个 text 事件，
-    随后可能产出 1 个 tool_calls 事件（非空列表），
-    最后 1 个 done 事件。出错时产出 err 事件。
-    """
-    text: str = ""                        # 文本增量
-    tool_calls: list[ToolCall] = field(default_factory=list)  # 非空：模型请求执行这些工具
+
+@dataclass
+class StreamEvent:
+    """流式事件——text / tool_calls / usage / done / err 多态语义。"""
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: Usage | None = None  # 本轮 token 用量（流结束后上抛一次）
     done: bool = False
     err: Exception | None = None
 
@@ -57,12 +68,7 @@ class StreamEvent:
 
 @dataclass
 class Message:
-    """对话消息，兼容 Anthropic 和 OpenAI 两种格式。
-
-    role: "user" | "assistant" | "system" | "tool"
-    tool_calls: assistant 回合可携带的工具调用列表（流式拼接后）
-    tool_results: tool 回合携带的工具执行结果列表
-    """
+    """对话消息，兼容 Anthropic 和 OpenAI 两种格式。"""
     role: Literal["user", "assistant", "system", "tool"] = "user"
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
@@ -87,6 +93,13 @@ class ConversationManager:
         """返回 user 消息轮数。"""
         return len([m for m in self._messages if m.role == ROLE_USER])
 
+    @property
+    def last_role(self) -> str:
+        """返回最后一条消息的角色，无消息时返回空字符串。"""
+        if not self._messages:
+            return ""
+        return self._messages[-1].role
+
     def add_user(self, text: str) -> None:
         """追加用户消息。"""
         self._messages.append(Message(role=ROLE_USER, content=text))
@@ -103,12 +116,50 @@ class ConversationManager:
             tool_calls=list(calls),
         ))
 
-    def add_tool_results(self, results: list[ToolResult]) -> None:
-        """工具结果回合（ROLE_TOOL）。"""
+    def add_tool_results(self, calls: list[ToolCall], results: list[ToolResult]) -> None:
+        """工具结果回合——同时存储 tool_calls 和 results，保证历史完整性。
+
+        Args:
+            calls: 本轮的原始工具调用列表（用于 assistant 端配对）
+            results: 执行结果列表（一一对应 calls）
+        """
         self._messages.append(Message(
             role=ROLE_TOOL,
+            tool_calls=list(calls),
             tool_results=list(results),
         ))
+
+    def ensure_assistant_tail(self, text: str = "") -> None:
+        """确保历史以 assistant 消息结尾，必要时补一条。
+
+        取消 / 出错 / 上限停止后调用，防止下一轮请求因角色不对齐被 API 拒（400）。
+
+        规则：
+        - 最后是 user → 加 assistant(text)
+        - 最后是 assistant 有 tool_calls 但后面无 tool_result → 补齐
+        - 最后是 assistant 无 tool_calls → 不动
+        - 最后是 tool → 已是合法状态，不动
+        """
+        if not self._messages:
+            self._messages.append(Message(role=ROLE_ASSISTANT, content=text))
+            return
+
+        last = self._messages[-1]
+        if last.role == ROLE_USER:
+            self._messages.append(Message(role=ROLE_ASSISTANT, content=text))
+        elif last.role == ROLE_ASSISTANT and last.tool_calls:
+            # 有悬空 tool_use 无 tool_result——补齐空结果
+            empty_results = [
+                ToolResult(tool_call_id=c.id, content=NOTICE_CANCELLED, is_error=True)
+                for c in last.tool_calls
+            ]
+            self._messages.append(Message(
+                role=ROLE_TOOL,
+                tool_calls=list(last.tool_calls),
+                tool_results=empty_results,
+            ))
+            if text:
+                self._messages.append(Message(role=ROLE_ASSISTANT, content=text))
 
     def add_system(self, text: str) -> None:
         """追加系统消息。"""
@@ -119,11 +170,7 @@ class ConversationManager:
         self._messages.clear()
 
     def get_context(self, max_turns: Optional[int] = None) -> List[Message]:
-        """获取最近 N 轮对话（用于上下文窗口裁剪）。
-
-        Args:
-            max_turns: 最大轮数，为 None 时返回全部。
-        """
+        """获取最近 N 轮对话（用于上下文窗口裁剪）。"""
         if max_turns is None:
             return list(self._messages)
 
@@ -144,9 +191,14 @@ __all__ = [
     "ToolCall",
     "ToolResult",
     "ToolDefinition",
+    "Usage",
     "StreamEvent",
     "ROLE_USER",
     "ROLE_ASSISTANT",
     "ROLE_SYSTEM",
     "ROLE_TOOL",
+    "NOTICE_MAX_ITER",
+    "NOTICE_UNKNOWN_TOOLS",
+    "NOTICE_CANCELLED",
+    "NOTICE_PROVIDER_ERROR",
 ]

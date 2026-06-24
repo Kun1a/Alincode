@@ -20,6 +20,10 @@ class GrepTool:
     正则非法、路径不存在等以结构化错误返回。
     """
 
+    @property
+    def read_only(self) -> bool:
+        return True
+
     def name(self) -> str:
         return "grep"
 

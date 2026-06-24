@@ -46,6 +46,11 @@ class Tool(Protocol):
         """手写 JSON Schema（type/properties/required/description）。"""
         ...
 
+    @property
+    def read_only(self) -> bool:
+        """只读工具不改变文件系统状态，可安全并发执行。"""
+        return False
+
     async def execute(self, args: str) -> Result:
         """执行工具，args 为 raw JSON 字符串。超时由 Registry 层控制。"""
         ...
@@ -108,6 +113,23 @@ class Registry:
             for t in map(self._tools.get, self._order)
             if t is not None
         ]
+
+    def read_only_definitions(self) -> list[ToolDefinition]:
+        """按注册顺序导出仅只读工具的定义列表（Plan Mode 用）。"""
+        return [
+            ToolDefinition(
+                name=t.name(),
+                description=t.description(),
+                input_schema=t.parameters(),
+            )
+            for t in map(self._tools.get, self._order)
+            if t is not None and t.read_only
+        ]
+
+    def is_read_only(self, name: str) -> bool:
+        """检查工具是否为只读。"""
+        tool = self.get(name)
+        return tool.read_only if tool else False
 
     async def execute(self, name: str, args: str, timeout: float = DEFAULT_TIMEOUT) -> Result:
         """按名查找工具并执行，受超时保护。

@@ -14,6 +14,8 @@ class WriteFileTool:
     父目录不存在时自动递归创建。
     """
 
+    read_only: bool = False
+
     def name(self) -> str:
         return "write_file"
 

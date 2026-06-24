@@ -18,6 +18,10 @@ class GlobTool:
     结果按字母排序，最多 100 条。
     """
 
+    @property
+    def read_only(self) -> bool:
+        return True
+
     def name(self) -> str:
         return "glob"
 

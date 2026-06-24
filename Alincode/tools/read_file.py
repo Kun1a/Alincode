@@ -19,6 +19,10 @@ class ReadFileTool:
     文件不存在 / 不可读 / 是目录时返回结构化错误。
     """
 
+    @property
+    def read_only(self) -> bool:
+        return True
+
     def name(self) -> str:
         return "read_file"
 

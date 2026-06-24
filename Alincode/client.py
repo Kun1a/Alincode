@@ -15,6 +15,7 @@ from Alincode.conversation import (
     StreamEvent,
     ToolCall,
     ToolDefinition,
+    Usage,
     ROLE_USER,
     ROLE_ASSISTANT,
     ROLE_TOOL,
@@ -39,13 +40,15 @@ class BaseProvider(ABC):
         messages: List[Message],
         model: str,
         tools: List[ToolDefinition],
+        system_suffix: str = "",
     ) -> AsyncIterator[StreamEvent]:
-        """发送对话历史给 LLM，异步流式返回 StreamEvent。
+        """流式请求 LLM，返回 StreamEvent 序列。
 
         Args:
-            messages: 完整对话历史（含本次 user 消息）
+            messages: 完整对话历史
             model: 模型名
             tools: 工具定义列表（空列表表示不带工具）
+            system_suffix: 追加到 system prompt 末尾的文本（Plan Mode 用）
         """
         ...
 
@@ -76,20 +79,23 @@ class AnthropicProvider(BaseProvider):
         messages: List[Message],
         model: str,
         tools: List[ToolDefinition],
+        system_suffix: str = "",
     ) -> AsyncIterator[StreamEvent]:
         """调用 Anthropic Messages API，流式返回 StreamEvent。"""
+        system_text = _extract_system_prompt(messages)
+        if system_suffix:
+            system_text = (system_text + "\n\n" + system_suffix).strip()
+
         params: dict[str, Any] = {
             "model": model,
             "max_tokens": 8192,
-            "system": _extract_system_prompt(messages),
+            "system": system_text,
             "messages": _to_anthropic_messages(messages),
         }
 
-        # 注入工具定义
         if tools:
             params["tools"] = _to_anthropic_tools(tools)
 
-        # 含工具历史的请求关闭 thinking（避免 400）
         if not _has_tool_history(messages):
             params["thinking"] = THINKING_CONFIG
 
@@ -100,11 +106,21 @@ class AnthropicProvider(BaseProvider):
                         delta = event.delta
                         if delta.type == "text_delta":
                             yield StreamEvent(text=delta.text)
-                        # thinking_delta / input_json_delta 跳过
-                        # （SDK 内部累加器保留完整 input JSON）
 
-                # 流结束后取汇总，检查是否有 tool_use
+                # 流结束后取汇总
                 final_message = await stream.get_final_message()
+
+                # 提取 token 用量
+                usage = None
+                if hasattr(final_message, "usage") and final_message.usage:
+                    usage = Usage(
+                        input_tokens=getattr(final_message.usage, "input_tokens", 0),
+                        output_tokens=getattr(final_message.usage, "output_tokens", 0),
+                    )
+                if usage:
+                    yield StreamEvent(usage=usage)
+
+                # 检查 tool_use
                 if final_message.stop_reason == "tool_use":
                     calls = []
                     for block in final_message.content:
@@ -142,15 +158,18 @@ class OpenAIProvider(BaseProvider):
         messages: List[Message],
         model: str,
         tools: List[ToolDefinition],
+        system_suffix: str = "",
     ) -> AsyncIterator[StreamEvent]:
         """调用 OpenAI Chat Completions API，流式返回 StreamEvent。"""
+        openai_msgs = _to_openai_messages(messages, system_suffix)
+
         params: dict[str, Any] = {
             "model": model,
-            "messages": _to_openai_messages(messages),
+            "messages": openai_msgs,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
 
-        # 注入工具定义
         if tools:
             params["tools"] = _to_openai_tools(tools)
 
@@ -158,6 +177,14 @@ class OpenAIProvider(BaseProvider):
             tool_calls_buf: dict[int, dict[str, str]] = {}
             async for chunk in await self._client.chat.completions.create(**params):
                 delta = chunk.choices[0].delta if chunk.choices else None
+
+                # Token 用量（末尾 chunk）
+                if hasattr(chunk, "usage") and chunk.usage:
+                    yield StreamEvent(usage=Usage(
+                        input_tokens=getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                        output_tokens=getattr(chunk.usage, "completion_tokens", 0) or 0,
+                    ))
+
                 if delta is None:
                     continue
 
@@ -288,7 +315,7 @@ def _to_anthropic_messages(messages: List[Message]) -> List[dict]:
     return result
 
 
-def _to_openai_messages(messages: List[Message]) -> List[dict]:
+def _to_openai_messages(messages: List[Message], system_suffix: str = "") -> List[dict]:
     """将内部 Message 列表转换为 OpenAI API 格式。"""
     result = []
     for msg in messages:
@@ -318,23 +345,21 @@ def _to_openai_messages(messages: List[Message]) -> List[dict]:
                     "tool_call_id": r.tool_call_id,
                     "content": r.content,
                 })
+
+    # system_suffix 追加到最后一条 system 消息
+    if system_suffix:
+        for entry in reversed(result):
+            if entry["role"] == "system":
+                entry["content"] = (entry["content"] + "\n\n" + system_suffix).strip()
+                break
+
     return result
 
 
 # ── Factory ───────────────────────────────────────────────────────
 
 def create_provider(config: ProviderConfig) -> BaseProvider:
-    """根据配置创建对应的 Provider 实例。
-
-    Args:
-        config: 已校验的 ProviderConfig
-
-    Returns:
-        对应协议的 BaseProvider 子类实例
-
-    Raises:
-        ValueError: protocol 值不匹配任何已知 provider
-    """
+    """根据配置创建对应的 Provider 实例。"""
     if config.protocol == "openai":
         return OpenAIProvider(config)
     elif config.protocol == "anthropic":

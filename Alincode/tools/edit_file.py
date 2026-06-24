@@ -16,6 +16,8 @@ class EditFileTool:
     匹配恰好 1 次 → 唯一替换后写回，返回成功。
     """
 
+    read_only: bool = False
+
     def name(self) -> str:
         return "edit_file"
 

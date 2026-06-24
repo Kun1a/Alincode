@@ -1,70 +1,52 @@
-/* mewcode/styles.tcss — Claude Code 风格暗色主题 */
+/* AlinCode/styles.tcss — Claude Code 风格暗色主题 */
 
 Screen {
-    background: #1a1a1a;
+    background: #141414;
     color: #d0d0d0;
 }
 
 Header {
-    background: #1a1a1a;
-    color: #00d7d7;
+    background: #141414;
+    color: #00afaf;
     text-style: bold;
     height: 1;
+    border-bottom: solid #2a2a2a;
 }
 
 Footer {
-    background: #1a1a1a;
+    background: #141414;
     color: #767676;
     height: 1;
+    border-top: solid #2a2a2a;
 }
 
 #chat-log {
-    background: #1a1a1a;
+    background: #141414;
     color: #d0d0d0;
     border: none;
     padding: 0 1;
     overflow-y: auto;
+    height: 1fr;
 }
 
-#chat-log:focus {
-    border: none;
+#stream-indicator {
+    background: #141414;
+    color: #888888;
+    height: auto;
+    padding: 0 1;
+    margin: 0;
 }
 
 #message-input {
-    background: #2a2a2a;
-    color: #d0d0d0;
-    border: none;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    border: solid #333333;
     padding: 0 1;
-    min-height: 3;
-    max-height: 8;
+    height: auto;
+    min-height: 1;
+    max-height: 5;
 }
 
 #message-input:focus {
-    border: none;
-}
-
-/* ── Message styles (applied via Rich Text objects) ── */
-.user {
-    color: #00d700;
-    text-style: bold;
-}
-
-.assistant {
-    color: #5f87ff;
-    text-style: bold;
-}
-
-.thinking {
-    color: #767676;
-    text-style: italic;
-}
-
-.info {
-    color: #767676;
-    text-style: italic;
-}
-
-.error {
-    color: #ff5555;
-    text-style: bold;
+    border: solid #5f87ff;
 }

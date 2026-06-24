@@ -20,6 +20,8 @@ class BashTool:
     非零退出码不作为 is_error（让模型自己判断）。
     """
 
+    read_only: bool = False
+
     def name(self) -> str:
         return "bash"
 
