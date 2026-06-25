@@ -23,9 +23,10 @@ class EditFileTool:
 
     def description(self) -> str:
         return (
-            "对文件中的指定文本片段做唯一匹配替换。"
+            "对文件中的指定文本片段做**唯一匹配替换**。"
+            "**编辑文件前必须先用 read_file 读取最新内容**。"
             "old_string 在文件中必须恰好出现一次，否则不执行修改并返回错误。"
-            "适用于精确的局部编辑。"
+            "优先用 edit_file 做精确局部修改，不要用 bash sed/awk 等命令来改文件。"
         )
 
     def parameters(self) -> dict:

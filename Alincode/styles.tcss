@@ -1,4 +1,4 @@
-/* AlinCode/styles.tcss — Claude Code 风格暗色主题 */
+/* AlinCode/styles.tcss */
 
 Screen {
     background: #141414;
@@ -29,12 +29,23 @@ Footer {
     height: 1fr;
 }
 
-#stream-indicator {
+#stream-text {
     background: #141414;
+    color: #d0d0d0;
+    height: auto;
+    max-height: 12;
+    padding: 0 2;
+    margin: 0;
+    overflow-y: auto;
+}
+
+#stream-indicator {
+    background: #1a1a2e;
     color: #888888;
     height: auto;
-    padding: 0 1;
-    margin: 0;
+    padding: 0 2;
+    border-top: solid #2a2a2a;
+    min-height: 1;
 }
 
 #message-input {

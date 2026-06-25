@@ -28,8 +28,8 @@ class BashTool:
     def description(self) -> str:
         return (
             "执行 shell 命令并返回标准输出、标准错误和退出码。"
-            "适用于运行测试、安装依赖、查看文件列表、构建项目等操作。"
-            "命令在项目工作目录下执行。"
+            "**优先用专用工具**：读文件用 read_file、改文件用 edit_file、搜代码用 grep、找文件用 glob。"
+            "仅在没有对应专用工具或需要运行测试/构建/安装依赖时使用 bash。"
         )
 
     def parameters(self) -> dict:

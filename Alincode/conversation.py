@@ -49,9 +49,11 @@ class ToolDefinition:
 
 @dataclass
 class Usage:
-    """单次 LLM 请求的 token 用量。"""
+    """单次 LLM 请求的 token 用量，含缓存命中字段。"""
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_write: int = 0   # Anthropic: cache_creation_input_tokens
+    cache_read: int = 0    # Anthropic: cache_read_input_tokens / OpenAI: cached_tokens
 
 
 @dataclass

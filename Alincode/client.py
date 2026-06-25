@@ -1,8 +1,9 @@
-"""Client 模块：LLM Provider 抽象层与具体实现（Anthropic / OpenAI）。"""
+"""Client 模块：LLM Provider 抽象层、请求结构、缓存感知用量。"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, List
 import json
 
@@ -23,6 +24,25 @@ from Alincode.conversation import (
 )
 
 
+# ── 请求结构 ──────────────────────────────────────
+
+@dataclass
+class System:
+    """系统提示分为稳定块（可缓存）和环境块（动态）。"""
+    stable: str = ""       # 模块化系统提示，可缓存（N1）
+    environment: str = ""  # 环境信息，不缓存（F2）
+
+
+@dataclass
+class Request:
+    """一次 LLM 请求的完整入参（替代分散传参）。"""
+    system: System = field(default_factory=System)
+    messages: list[Message] = field(default_factory=list)
+    model: str = ""
+    tools: list[ToolDefinition] = field(default_factory=list)
+    reminder: str = ""  # 本轮补充消息（plan mode reminder 等）
+
+
 # ── Provider 接口 ─────────────────────────────────────
 
 class BaseProvider(ABC):
@@ -35,21 +55,8 @@ class BaseProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream(
-        self,
-        messages: List[Message],
-        model: str,
-        tools: List[ToolDefinition],
-        system_suffix: str = "",
-    ) -> AsyncIterator[StreamEvent]:
-        """流式请求 LLM，返回 StreamEvent 序列。
-
-        Args:
-            messages: 完整对话历史
-            model: 模型名
-            tools: 工具定义列表（空列表表示不带工具）
-            system_suffix: 追加到 system prompt 末尾的文本（Plan Mode 用）
-        """
+    async def stream(self, req: Request) -> AsyncIterator[StreamEvent]:
+        """流式请求 LLM，返回 StreamEvent 序列。"""
         ...
 
 
@@ -62,7 +69,7 @@ THINKING_CONFIG = {
 
 
 class AnthropicProvider(BaseProvider):
-    """Anthropic 协议实现，支持工具调用与 extended thinking。"""
+    """Anthropic 协议实现——双 system 块 + 缓存断点 + reminder 并入用户消息。"""
 
     def __init__(self, config: ProviderConfig) -> None:
         self._client = AsyncAnthropic(
@@ -74,29 +81,39 @@ class AnthropicProvider(BaseProvider):
     def provider_name(self) -> str:
         return "anthropic"
 
-    async def stream(
-        self,
-        messages: List[Message],
-        model: str,
-        tools: List[ToolDefinition],
-        system_suffix: str = "",
-    ) -> AsyncIterator[StreamEvent]:
-        """调用 Anthropic Messages API，流式返回 StreamEvent。"""
-        system_text = _extract_system_prompt(messages)
-        if system_suffix:
-            system_text = (system_text + "\n\n" + system_suffix).strip()
+    async def stream(self, req: Request) -> AsyncIterator[StreamEvent]:
+        """调用 Anthropic Messages API。
+
+        system 通过双文本块发送：稳定块 + 环境块。
+        稳定块末尾标 cache_control（N1），环境块不标。
+        """
+        # 构建 system 参数（双文本块）
+        system_blocks = []
+        if req.system.stable:
+            system_blocks.append({
+                "type": "text",
+                "text": req.system.stable,
+                "cache_control": {"type": "ephemeral"},
+            })
+        if req.system.environment:
+            system_blocks.append({
+                "type": "text",
+                "text": req.system.environment,
+            })
+
+        # 构建消息列表，reminder 并入末条 user 消息
+        messages = _to_anthropic_messages(req.messages, req.reminder)
 
         params: dict[str, Any] = {
-            "model": model,
+            "model": req.model,
             "max_tokens": 8192,
-            "system": system_text,
-            "messages": _to_anthropic_messages(messages),
+            "messages": messages,
         }
-
-        if tools:
-            params["tools"] = _to_anthropic_tools(tools)
-
-        if not _has_tool_history(messages):
+        if system_blocks:
+            params["system"] = system_blocks
+        if req.tools:
+            params["tools"] = _to_anthropic_tools(req.tools)
+        if not _has_tool_history(req.messages):
             params["thinking"] = THINKING_CONFIG
 
         try:
@@ -107,27 +124,19 @@ class AnthropicProvider(BaseProvider):
                         if delta.type == "text_delta":
                             yield StreamEvent(text=delta.text)
 
-                # 流结束后取汇总
                 final_message = await stream.get_final_message()
 
-                # 提取 token 用量
-                usage = None
-                if hasattr(final_message, "usage") and final_message.usage:
-                    usage = Usage(
-                        input_tokens=getattr(final_message.usage, "input_tokens", 0),
-                        output_tokens=getattr(final_message.usage, "output_tokens", 0),
-                    )
-                if usage:
-                    yield StreamEvent(usage=usage)
+                # 缓存用量
+                usage_ = _extract_anthropic_usage(final_message)
+                if usage_:
+                    yield StreamEvent(usage=usage_)
 
-                # 检查 tool_use
                 if final_message.stop_reason == "tool_use":
                     calls = []
                     for block in final_message.content:
                         if block.type == "tool_use":
                             calls.append(ToolCall(
-                                id=block.id,
-                                name=block.name,
+                                id=block.id, name=block.name,
                                 input=_safe_json_dumps(block.input),
                             ))
                     if calls:
@@ -141,7 +150,7 @@ class AnthropicProvider(BaseProvider):
 
 
 class OpenAIProvider(BaseProvider):
-    """OpenAI 协议实现，支持工具调用。"""
+    """OpenAI 协议实现——单条 system（stable+env），reminder 尾部追加。"""
 
     def __init__(self, config: ProviderConfig) -> None:
         self._client = AsyncOpenAI(
@@ -153,46 +162,31 @@ class OpenAIProvider(BaseProvider):
     def provider_name(self) -> str:
         return "openai"
 
-    async def stream(
-        self,
-        messages: List[Message],
-        model: str,
-        tools: List[ToolDefinition],
-        system_suffix: str = "",
-    ) -> AsyncIterator[StreamEvent]:
-        """调用 OpenAI Chat Completions API，流式返回 StreamEvent。"""
-        openai_msgs = _to_openai_messages(messages, system_suffix)
+    async def stream(self, req: Request) -> AsyncIterator[StreamEvent]:
+        """调用 OpenAI Chat Completions API。"""
+        openai_msgs = _to_openai_messages(req)
 
         params: dict[str, Any] = {
-            "model": model,
+            "model": req.model,
             "messages": openai_msgs,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-
-        if tools:
-            params["tools"] = _to_openai_tools(tools)
+        if req.tools:
+            params["tools"] = _to_openai_tools(req.tools)
 
         try:
             tool_calls_buf: dict[int, dict[str, str]] = {}
             async for chunk in await self._client.chat.completions.create(**params):
                 delta = chunk.choices[0].delta if chunk.choices else None
 
-                # Token 用量（末尾 chunk）
                 if hasattr(chunk, "usage") and chunk.usage:
-                    yield StreamEvent(usage=Usage(
-                        input_tokens=getattr(chunk.usage, "prompt_tokens", 0) or 0,
-                        output_tokens=getattr(chunk.usage, "completion_tokens", 0) or 0,
-                    ))
+                    yield StreamEvent(usage=_extract_openai_usage(chunk.usage))
 
                 if delta is None:
                     continue
-
-                # 正文增量
                 if delta.content:
                     yield StreamEvent(text=delta.content)
-
-                # 工具调用增量
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = tc.index
@@ -206,16 +200,13 @@ class OpenAIProvider(BaseProvider):
                             if tc.function.arguments:
                                 tool_calls_buf[idx]["args"] += tc.function.arguments
 
-            # 流结束后组装 tool_calls
             if tool_calls_buf:
                 calls = []
                 for idx in sorted(tool_calls_buf.keys()):
                     v = tool_calls_buf[idx]
-                    args = v.get("args", "") or "{}"
                     calls.append(ToolCall(
-                        id=v.get("id", ""),
-                        name=v.get("name", ""),
-                        input=args,
+                        id=v.get("id", ""), name=v.get("name", ""),
+                        input=v.get("args", "") or "{}",
                     ))
                 yield StreamEvent(tool_calls=calls)
 
@@ -226,51 +217,33 @@ class OpenAIProvider(BaseProvider):
             yield StreamEvent(done=True)
 
 
-# ── 工具辅助函数 ──────────────────────────────────────────
+# ── 辅助函数 ──────────────────────────────────────────
 
 def _to_anthropic_tools(tools: List[ToolDefinition]) -> List[dict]:
-    """将 ToolDefinition 列表转为 Anthropic 工具格式。"""
     return [
-        {
-            "name": t.name,
-            "description": t.description,
-            "input_schema": t.input_schema,
-        }
+        {"name": t.name, "description": t.description, "input_schema": t.input_schema}
         for t in tools
     ]
 
 
 def _to_openai_tools(tools: List[ToolDefinition]) -> List[dict]:
-    """将 ToolDefinition 列表转为 OpenAI 工具格式。"""
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": t.description,
-                "parameters": t.input_schema,
-            },
-        }
+        {"type": "function", "function": {
+            "name": t.name, "description": t.description,
+            "parameters": t.input_schema,
+        }}
         for t in tools
     ]
 
 
 def _safe_json_dumps(obj: Any) -> str:
-    """安全序列化为 JSON 字符串，失败时返回空对象字符串。"""
     try:
         return json.dumps(obj, ensure_ascii=False)
     except Exception:
         return "{}"
 
 
-def _extract_system_prompt(messages: List[Message]) -> str:
-    """提取 system 角色的消息内容作为 system prompt。"""
-    parts = [msg.content for msg in messages if msg.role == ROLE_SYSTEM]
-    return "\n".join(parts) if parts else ""
-
-
 def _has_tool_history(messages: List[Message]) -> bool:
-    """检查消息历史中是否包含工具交互——有则对续答请求关闭 thinking。"""
     for msg in messages:
         if msg.role == ROLE_TOOL:
             return True
@@ -279,8 +252,31 @@ def _has_tool_history(messages: List[Message]) -> bool:
     return False
 
 
-def _to_anthropic_messages(messages: List[Message]) -> List[dict]:
-    """将内部 Message 列表转换为 Anthropic API 格式。"""
+def _extract_anthropic_usage(final_message) -> Usage | None:
+    try:
+        u = final_message.usage
+        return Usage(
+            input_tokens=getattr(u, "input_tokens", 0) or 0,
+            output_tokens=getattr(u, "output_tokens", 0) or 0,
+            cache_write=getattr(u, "cache_creation_input_tokens", 0) or 0,
+            cache_read=getattr(u, "cache_read_input_tokens", 0) or 0,
+        )
+    except Exception:
+        return None
+
+
+def _extract_openai_usage(u) -> Usage:
+    details = getattr(u, "prompt_tokens_details", None)
+    cached = getattr(details, "cached_tokens", 0) if details else 0
+    return Usage(
+        input_tokens=getattr(u, "prompt_tokens", 0) or 0,
+        output_tokens=getattr(u, "completion_tokens", 0) or 0,
+        cache_read=cached or 0,
+    )
+
+
+def _to_anthropic_messages(messages: List[Message], reminder: str = "") -> List[dict]:
+    """转换为 Anthropic 格式，reminder 织入末条 user 消息的 content 块。"""
     result = []
     for msg in messages:
         if msg.role == ROLE_SYSTEM:
@@ -289,69 +285,76 @@ def _to_anthropic_messages(messages: List[Message]) -> List[dict]:
             result.append({"role": "user", "content": msg.content or ""})
         elif msg.role == ROLE_ASSISTANT:
             if msg.tool_calls:
-                content_blocks: list[dict[str, Any]] = []
+                blocks: list[dict] = []
                 if msg.content:
-                    content_blocks.append({"type": "text", "text": msg.content})
+                    blocks.append({"type": "text", "text": msg.content})
                 for c in msg.tool_calls:
-                    content_blocks.append({
-                        "type": "tool_use",
-                        "id": c.id,
-                        "name": c.name,
+                    blocks.append({
+                        "type": "tool_use", "id": c.id, "name": c.name,
                         "input": json.loads(c.input),
                     })
-                result.append({"role": "assistant", "content": content_blocks})
+                result.append({"role": "assistant", "content": blocks})
             else:
                 result.append({"role": "assistant", "content": msg.content or ""})
         elif msg.role == ROLE_TOOL:
-            tool_result_blocks = []
+            blocks = []
             for r in (msg.tool_results or []):
-                tool_result_blocks.append({
-                    "type": "tool_result",
-                    "tool_use_id": r.tool_call_id,
-                    "content": r.content,
-                    "is_error": r.is_error,
+                blocks.append({
+                    "type": "tool_result", "tool_use_id": r.tool_call_id,
+                    "content": r.content, "is_error": r.is_error,
                 })
-            result.append({"role": "user", "content": tool_result_blocks})
+            result.append({"role": "user", "content": blocks})
+
+    # reminder 织入末条 user 消息
+    if reminder and result:
+        last = result[-1]
+        if last["role"] == "user":
+            content = last["content"]
+            if isinstance(content, str):
+                result[-1]["content"] = [{"type": "text", "text": content}]
+                content = result[-1]["content"]
+            content.append({"type": "text", "text": reminder})
+        else:
+            result.append({"role": "user", "content": [{"type": "text", "text": reminder}]})
+
     return result
 
 
-def _to_openai_messages(messages: List[Message], system_suffix: str = "") -> List[dict]:
-    """将内部 Message 列表转换为 OpenAI API 格式。"""
+def _to_openai_messages(req: Request) -> List[dict]:
+    """转换为 OpenAI 格式——单条 system（stable+env），reminder 尾部 user。"""
     result = []
-    for msg in messages:
+
+    # 单条 system：stable 在前，env 在后
+    sys_content = req.system.stable
+    if req.system.environment:
+        sys_content = (sys_content + "\n\n" + req.system.environment).strip()
+    if sys_content:
+        result.append({"role": "system", "content": sys_content})
+
+    for msg in req.messages:
         if msg.role == ROLE_USER:
             result.append({"role": "user", "content": msg.content or ""})
         elif msg.role == ROLE_ASSISTANT:
-            entry: dict[str, Any] = {"role": "assistant", "content": msg.content or None}
+            entry: dict = {"role": "assistant", "content": msg.content or None}
             if msg.tool_calls:
                 entry["tool_calls"] = [
-                    {
-                        "id": c.id,
-                        "type": "function",
-                        "function": {
-                            "name": c.name,
-                            "arguments": c.input or "{}",
-                        },
-                    }
-                    for c in msg.tool_calls
+                    {"id": c.id, "type": "function", "function": {
+                        "name": c.name, "arguments": c.input or "{}",
+                    }} for c in msg.tool_calls
                 ]
             result.append(entry)
         elif msg.role == ROLE_SYSTEM:
-            result.append({"role": "system", "content": msg.content or ""})
+            pass  # 已用 req.system 替代
         elif msg.role == ROLE_TOOL:
             for r in (msg.tool_results or []):
                 result.append({
-                    "role": "tool",
-                    "tool_call_id": r.tool_call_id,
+                    "role": "tool", "tool_call_id": r.tool_call_id,
                     "content": r.content,
                 })
 
-    # system_suffix 追加到最后一条 system 消息
-    if system_suffix:
-        for entry in reversed(result):
-            if entry["role"] == "system":
-                entry["content"] = (entry["content"] + "\n\n" + system_suffix).strip()
-                break
+    # reminder 作为尾部 user 消息追加
+    if req.reminder:
+        result.append({"role": "user", "content": req.reminder})
 
     return result
 
@@ -359,7 +362,6 @@ def _to_openai_messages(messages: List[Message], system_suffix: str = "") -> Lis
 # ── Factory ───────────────────────────────────────────────────────
 
 def create_provider(config: ProviderConfig) -> BaseProvider:
-    """根据配置创建对应的 Provider 实例。"""
     if config.protocol == "openai":
         return OpenAIProvider(config)
     elif config.protocol == "anthropic":
@@ -369,8 +371,6 @@ def create_provider(config: ProviderConfig) -> BaseProvider:
 
 
 __all__ = [
-    "BaseProvider",
-    "AnthropicProvider",
-    "OpenAIProvider",
-    "create_provider",
+    "BaseProvider", "AnthropicProvider", "OpenAIProvider", "create_provider",
+    "Request", "System",
 ]

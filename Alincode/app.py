@@ -1,4 +1,4 @@
-"""TUI 主控：Textual App，对话界面、Agent Loop、工具行渲染。"""
+"""TUI 主控：Textual App — 逐字流式 + 工具行 + 累积渲染。"""
 
 from __future__ import annotations
 
@@ -18,17 +18,23 @@ from Alincode.prompts import SYSTEM_PROMPT, EXECUTE_DIRECTIVE
 from Alincode.tools import Registry
 
 
-# ── Streaming indicator widget ──────────────────────────────
+# ── Streaming text widget ─────────────────────────────────
 
-class StreamIndicator(Static):
-    """流式状态指示器——显示工具执行进度 / 思考中。"""
+class StreamText(Static):
+    """流式文本区——每收到 token 用 update(accumulated_text) 刷新。"""
     pass
 
 
-# ── Tool display tracking ────────────────────────────────────
+# ── Indicator widget ──────────────────────────────────────
+
+class StreamIndicator(Static):
+    """流式状态指示器——工具执行 / 思考中。"""
+    pass
+
+
+# ── Tool display ──────────────────────────────────────────
 
 class ToolDisplay:
-    """正在执行中的工具状态。"""
     def __init__(self, name: str = "", args: str = "") -> None:
         self.name = name
         self.args = args
@@ -39,67 +45,53 @@ class ToolDisplay:
         return time.monotonic() - self.started_at
 
 
-# ── ChatLog ──────────────────────────────────────────────────
+# ── ChatLog ───────────────────────────────────────────────
 
 class ChatLog(RichLog):
-    """对话日志组件——流式输出 + 工具行 + 消息着色。"""
+    """对话日志——只做永久消息写入，不管流式。"""
 
     def __init__(self, **kwargs) -> None:
         super().__init__(highlight=True, markup=True, wrap=True, max_lines=10000, **kwargs)
-        self._stream_buffer = ""
-        self.can_focus = False  # 不抢输入框焦点
-
-    # ── 流式输出 ──────────────────────────────────────
-
-    def start_stream(self) -> None:
-        self._stream_buffer = ""
-
-    def stream_token(self, token: str) -> None:
-        self._stream_buffer += token
-        if "\n" in self._stream_buffer:
-            lines = self._stream_buffer.split("\n")
-            for line in lines[:-1]:
-                self.write(line, scroll_end=True)
-            self._stream_buffer = lines[-1]
-
-    def finish_stream(self) -> None:
-        if self._stream_buffer:
-            self.write(self._stream_buffer, scroll_end=True)
-        self._stream_buffer = ""
-
-    # ── 消息行 ────────────────────────────────────────
+        self.can_focus = False
 
     def append_user(self, text: str) -> None:
-        self.write(f"[bold #00d700]▸[/] {text}")
+        self.write("")
+        self.write(f"[bold #00d700]▶[/] [bold #ffffff]{text}[/]")
+        self.write("")
 
     def append_tool_line(self, name: str, args: str) -> None:
-        self.write(f"  [bold cyan]●[/] [bold]{name}({args})[/]")
+        self.write(f"  [bold cyan]⚙[/] [bold #00afaf]{name}[/] [dim]{args}[/]")
 
     def append_tool_result(self, result: str, is_error: bool = False) -> None:
-        style = "bold red" if is_error else "#888888"
+        style = "bold #ff5555" if is_error else "#888888"
         lines = result.strip().split("\n")
-        MAX_LINES = 8
-        preview = "\n".join(lines[:MAX_LINES])
-        if len(lines) > MAX_LINES:
+        preview = "\n".join(lines[:8])
+        if len(lines) > 8:
             preview += f"\n[dim]  … ({len(lines)} 行)[/]"
+        first = True
         for line in preview.split("\n"):
-            self.write(f"   [{style}]⎿[/] [{style}]{line}[/]")
+            prefix = "   [bold #888888]⤷[/]" if first else "    "
+            self.write(f"{prefix} [{style}]{line}[/]")
+            first = False
+
+    def append_markdown_block(self, text: str) -> None:
+        """把 Markdown 文本作为富内容写入 RichLog。"""
+        from rich.markdown import Markdown
+        self.write(Markdown(text))
 
     def append_info(self, text: str) -> None:
-        self.write(f"[#888888 italic]── {text}[/]")
+        self.write(f"[#767676 italic]── {text}[/]")
 
     def append_error(self, text: str) -> None:
         self.write(f"[bold #ff5555]✗ {text}[/]")
 
     def append_notice(self, text: str) -> None:
-        self.write(f"[#888888 italic]── {text}[/]")
+        self.write(f"[#767676 italic]── {text}[/]")
 
 
-# ── MessageInput ────────────────────────────────────────────
+# ── MessageInput ─────────────────────────────────────────
 
 class MessageInput(TextArea):
-    """单行输入框——Enter 发送，Alt+Enter 换行。"""
-
     BINDINGS = [
         Binding("enter", "submit_message", "Send", priority=True, show=False),
         Binding("alt+enter", "insert_line", "New Line", show=False),
@@ -120,20 +112,23 @@ class MessageInput(TextArea):
         self.insert("\n")
 
 
-# ── AlinCodeApp ─────────────────────────────────────────────
+# ── Helpers ──────────────────────────────────────────────
 
 def _fmt_tok(n: int) -> str:
     if n >= 1000:
         return f"{n/1000:.1f}k"
     return str(n)
 
-
 def _fmt_dur(secs: float) -> str:
+    if secs < 1:
+        return "<1s"
     if secs < 60:
         return f"{secs:.0f}s"
     m, s = divmod(int(secs), 60)
     return f"{m}m{s:02d}s"
 
+
+# ── AlinCodeApp ──────────────────────────────────────────
 
 class AlinCodeApp(App):
     TITLE = "AlinCode"
@@ -163,10 +158,12 @@ class AlinCodeApp(App):
         self._usage_in: int = 0
         self._usage_out: int = 0
         self._refresh_timer: asyncio.Task | None = None
+        self._stream_started_at: float = 0.0
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield ChatLog(id="chat-log")
+        yield StreamText(id="stream-text")
         yield StreamIndicator(id="stream-indicator")
         yield MessageInput(id="message-input")
         yield Footer()
@@ -174,19 +171,37 @@ class AlinCodeApp(App):
     def on_mount(self) -> None:
         chat_log = self.query_one("#chat-log", ChatLog)
         model_info = f"{self._provider.provider_name} │ {self._model}"
-        chat_log.append_info(f"══ AlinCode v0.3 ══ {model_info} ══")
+        chat_log.write("")
+        chat_log.write("[bold #00afaf]"
+            "           ⣀⣀⣀⣀\n"
+            "         ⢀⣿⣿⣿⣿⣿⡀\n"
+            "        ⢰⣿⣿⣿⣿⣿⣿⣿⡆\n"
+            "        ⣸⣿⣿⣿⣿⣿⣿⣿⣇\n"
+            "       ⢰⣿⣿⠉   ⠉⣿⣿⡆\n"
+            "       ⣿⣿⣿⡀   ⣿⣿⣿\n"
+            "      ⢠⣿⣿⣿⣿⣿⣿⣿⣿⡄\n"
+            "      ⣼⣿⡟⠉⠉⠉⠉⢻⣿⣧\n"
+            "      ⣿⣿⡇       ⢸⣿⣿\n"
+            "      ⠻⢿⣿⣤⣀⣀⣤⣿⡿⠟\n"
+            "         ⠉⠉⠉⠉⠉⠉"
+            "[/]")
+        chat_log.write("")
+        chat_log.append_info(f"[bold #ffaa00]AlinCode[/] v0.3 │ {model_info}")
+        chat_log.write("")
         self._update_status()
         self._conv.add_system(SYSTEM_PROMPT)
         self._update_indicator()
-        # 确保输入框获得焦点
         self.query_one("#message-input", TextArea).focus()
 
-    # ── Status bar ────────────────────────────────────────
+    def _stream_widget(self) -> StreamText:
+        return self.query_one("#stream-text", StreamText)
+
+    # ── Status ──────────────────────────────────────────
 
     def _update_status(self) -> None:
         parts = [self._provider.provider_name]
         if self._mode == Mode.PLAN:
-            parts.append("[b #ffaa00]PLAN[/]")
+            parts.append("[bold #ffaa00]PLAN[/]")
         parts.append(self._model)
         toks = []
         if self._usage_in:
@@ -199,18 +214,26 @@ class AlinCodeApp(App):
             parts.append(f"轮 {self._iter}")
         self.sub_title = " │ ".join(parts)
 
-    # ── Streaming indicator ──────────────────────────────
+    # ── Indicator ───────────────────────────────────────
+
+    def _elapsed_since_stream_start(self) -> float:
+        if self._stream_started_at == 0:
+            return 0
+        return time.monotonic() - self._stream_started_at
 
     def _update_indicator(self) -> None:
-        """刷新流式状态指示器。"""
         indicator = self.query_one("#stream-indicator", StreamIndicator)
         if self._cur_tools:
             lines = []
             for td in self._cur_tools:
-                lines.append(f"  [bold cyan]●[/] [bold]{td.name}({td.args})[/] [bold #ffaa00]Running… {_fmt_dur(td.elapsed)}[/]")
+                lines.append(
+                    f"  [bold cyan]⚙[/] [bold #00afaf]{td.name}[/]"
+                    f"[dim]({td.args})[/] [bold #ffaa00]Running… {_fmt_dur(td.elapsed)}[/]"
+                )
             indicator.update("\n".join(lines))
         elif self._chatting:
-            msg = f"  [bold #5f87ff]●[/] Imagining… ({_fmt_dur(0)})"
+            dur = _fmt_dur(self._elapsed_since_stream_start())
+            msg = f"  [bold #5f87ff]●[/] Imagining… ({dur})"
             if self._iter > 0:
                 msg += f" · 第 {self._iter} 轮"
             indicator.update(msg)
@@ -218,12 +241,11 @@ class AlinCodeApp(App):
             indicator.update("")
 
     async def _indicator_loop(self) -> None:
-        """定时刷新指示器（chatting 期间 250ms 一次）。"""
         while self._chatting:
             self._update_indicator()
             await asyncio.sleep(0.25)
 
-    # ── Keyboard ──────────────────────────────────────────
+    # ── Keyboard ────────────────────────────────────────
 
     def action_cancel_or_quit(self) -> None:
         if self._chatting and self._turn_cancel:
@@ -237,17 +259,14 @@ class AlinCodeApp(App):
 
     def action_scroll_up(self) -> None:
         self.query_one("#chat-log", ChatLog).scroll_page_up()
-
     def action_scroll_down(self) -> None:
         self.query_one("#chat-log", ChatLog).scroll_page_down()
-
     def action_scroll_home(self) -> None:
         self.query_one("#chat-log", ChatLog).scroll_home()
-
     def action_scroll_end(self) -> None:
         self.query_one("#chat-log", ChatLog).scroll_end()
 
-    # ── Message handling ─────────────────────────────────
+    # ── Commands ─────────────────────────────────────────
 
     @on(MessageInput.Submitted)
     async def _on_input_submitted(self, event: MessageInput.Submitted) -> None:
@@ -265,15 +284,13 @@ class AlinCodeApp(App):
         if user_text == "/tools":
             defs = self._tool_registry.definitions()
             rdefs = self._tool_registry.read_only_definitions()
-            names = ", ".join(d.name for d in defs)
-            rnames = ", ".join(d.name for d in rdefs)
-            chat_log.append_info(f"全部({len(defs)}): {names}")
-            chat_log.append_info(f"只读({len(rdefs)}): {rnames}")
+            chat_log.append_info(f"全部({len(defs)}): {', '.join(d.name for d in defs)}")
+            chat_log.append_info(f"只读({len(rdefs)}): {', '.join(d.name for d in rdefs)}")
             return
         if user_text == "/plan":
             self._mode = Mode.PLAN
             self._update_status()
-            chat_log.append_info("[PLAN] 计划模式——仅只读工具可用。输入需求制定方案，完成后 /do 执行")
+            chat_log.append_info("[PLAN] 计划模式——仅只读工具可用。完成后 /do 执行")
             return
         if user_text == "/do":
             self._mode = Mode.NORMAL
@@ -298,17 +315,31 @@ class AlinCodeApp(App):
         self._turn_cancel = asyncio.Event()
         self._iter = 0
         self._cur_tools = []
+        self._stream_started_at = time.monotonic()
+        self._stream_widget().update("")
         self._stream_task = asyncio.create_task(self._consume_events(chat_log))
         self._refresh_timer = asyncio.create_task(self._indicator_loop())
 
     async def _consume_events(self, chat_log: ChatLog) -> None:
-        agent = Agent(self._provider, self._tool_registry, self._model)
-        cur_reply = ""
-        stream_active = False
+        agent = Agent(self._provider, self._tool_registry, self._model, version="0.3.0")
+        accumulated = ""
+        stream_widget = self._stream_widget()
+
+        def _commit_to_log(text: str) -> None:
+            """把累积文本固化到 RichLog（Markdown 渲染）。"""
+            if not text.strip():
+                return
+            chat_log.write("")  # 空行
+            chat_log.write("[bold #5f87ff]●[/] ", scroll_end=True)
+            from rich.markdown import Markdown
+            chat_log.write(Markdown(text.strip()))
 
         try:
             async for ev in agent.run(self._conv, mode=self._mode, cancel=self._turn_cancel):
                 if ev.err:
+                    _commit_to_log(accumulated)
+                    accumulated = ""
+                    stream_widget.update("")
                     chat_log.append_error(f"错误: {ev.err}")
                     break
 
@@ -325,39 +356,35 @@ class AlinCodeApp(App):
                     self._update_status()
 
                 if ev.text:
-                    cur_reply += ev.text
-                    # 始终流式输出文本（不管是否有工具在跑）
-                    if not stream_active:
-                        stream_active = True
-                    chat_log.stream_token(ev.text)
+                    accumulated += ev.text
+                    # ★ 核心：累积文本 → 替换式刷新（不产生重复条目）
+                    stream_widget.update(
+                        "[bold #5f87ff]●[/] " + accumulated
+                    )
 
                 if ev.tool and ev.tool.phase == AgentPhase.START:
-                    # 首个工具前：提交 preamble 到 RichLog
-                    if cur_reply.strip() and not self._cur_tools:
-                        if stream_active:
-                            chat_log.finish_stream()
-                            stream_active = False
-                        cur_reply = ""
+                    # 工具调用前：固化 preamble 到 RichLog
+                    _commit_to_log(accumulated)
+                    accumulated = ""
+                    stream_widget.update("")
                     self._cur_tools.append(ToolDisplay(
                         name=ev.tool.name, args=ev.tool.args,
                     ))
                     self._update_indicator()
 
                 if ev.tool and ev.tool.phase == AgentPhase.END:
-                    # 提交工具行 + 结果到 RichLog
                     chat_log.append_tool_line(ev.tool.name, ev.tool.args)
                     chat_log.append_tool_result(
                         ev.tool.result, is_error=ev.tool.is_error,
                     )
-                    # FIFO 弹出（事件按序到达，先 START 的先 END）
                     if self._cur_tools:
                         self._cur_tools.pop(0)
                     self._update_indicator()
 
                 if ev.done:
-                    if stream_active:
-                        chat_log.finish_stream()
-                        stream_active = False
+                    _commit_to_log(accumulated)
+                    accumulated = ""
+                    stream_widget.update("")
                     self._cur_tools = []
                     self._iter = 0
                     self._update_indicator()
@@ -368,13 +395,14 @@ class AlinCodeApp(App):
         except Exception as e:
             chat_log.append_error(f"异常: {e}")
         finally:
-            if stream_active:
-                chat_log.finish_stream()
+            accumulated = accumulated  # no-op
+            stream_widget.update("")
             self._cur_tools = []
             self._iter = 0
             self._chatting = False
             self._stream_task = None
             self._turn_cancel = None
+            self._stream_started_at = 0
             self._update_indicator()
             self._update_status()
             if self._refresh_timer:
