@@ -5,7 +5,8 @@ from typing import AsyncIterator, List
 
 import pytest
 
-from Alincode.agent import Agent, Mode, Phase
+from Alincode.agent import Agent, Phase
+from Alincode.permission import Mode
 from Alincode.client import BaseProvider, Request
 from Alincode.conversation import (
     ConversationManager,
@@ -119,7 +120,7 @@ async def test_natural_completion():
     provider = FakeProvider(script)
     agent = Agent(provider, reg)
     events = []
-    async for ev in agent.run(conv):
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
         events.append(ev)
 
     assert fake_tool.executed
@@ -143,7 +144,7 @@ async def test_max_iterations():
     provider = FakeProvider(script)
     agent = Agent(provider, reg)
     events = []
-    async for ev in agent.run(conv):
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
         events.append(ev)
 
     assert provider.call_count == 25
@@ -165,7 +166,7 @@ async def test_unknown_tools_stop():
     provider = FakeProvider(script)
     agent = Agent(provider, reg)
     events = []
-    async for ev in agent.run(conv):
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
         events.append(ev)
 
     assert provider.call_count == 3
@@ -181,7 +182,7 @@ async def test_stream_error():
     provider = FakeProvider([[StreamEvent(err=RuntimeError("API down"), done=True)]])
     agent = Agent(provider, reg)
     events = []
-    async for ev in agent.run(conv):
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
         events.append(ev)
 
     errs = [e for e in events if e.err]
@@ -194,30 +195,30 @@ async def test_concurrent_batch():
     conv = ConversationManager()
     conv.add_user("batch test")
     reg = Registry()
-    ro1 = FakeReadOnlyTool(name="ro1", sleep=0.05)
-    ro2 = FakeReadOnlyTool(name="ro2", sleep=0.05)
-    rw = FakeWriteTool(name="rw", sleep=0.02)
+    ro1 = FakeReadOnlyTool(name="read_file", sleep=0.05)
+    ro2 = FakeReadOnlyTool(name="glob", sleep=0.05)
+    rw = FakeWriteTool(name="bash", sleep=0.02)
     reg.register(ro1)
     reg.register(ro2)
     reg.register(rw)
 
     script = [
         [StreamEvent(tool_calls=[
-            ToolCall(id="1", name="ro1", input='{}'),
-            ToolCall(id="2", name="ro2", input='{}'),
-            ToolCall(id="3", name="rw", input='{}'),
+            ToolCall(id="1", name="read_file", input='{}'),
+            ToolCall(id="2", name="glob", input='{}'),
+            ToolCall(id="3", name="bash", input='{}'),
         ], done=True)],
         [StreamEvent(text="done", done=True)],
     ]
     provider = FakeProvider(script)
     agent = Agent(provider, reg)
     events = []
-    async for ev in agent.run(conv):
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
         events.append(ev)
 
     assert ro1.executed and ro2.executed and rw.executed
     start_order = [e.tool.name for e in events if e.tool and e.tool.phase == Phase.START]
-    assert start_order == ["ro1", "ro2", "rw"]
+    assert start_order == ["read_file", "glob", "bash"]
 
 
 @pytest.mark.asyncio
@@ -237,7 +238,7 @@ async def test_cancel_during_tools():
     cancel = asyncio.Event()
 
     events = []
-    async for ev in agent.run(conv, cancel=cancel):
+    async for ev in agent.run(conv, mode=Mode.BYPASS, cancel=cancel):
         events.append(ev)
         asyncio.create_task(_set_after(cancel, 0.01))
 
@@ -282,7 +283,7 @@ async def test_system_request_assembly():
 
     provider = FakeProvider([[StreamEvent(text="ok", done=True)]])
     agent = Agent(provider, reg, version="0.3.0")
-    async for _ in agent.run(conv):
+    async for _ in agent.run(conv, mode=Mode.BYPASS):
         pass
 
     req = provider.last_req

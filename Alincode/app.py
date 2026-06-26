@@ -11,9 +11,11 @@ from textual.binding import Binding
 from textual.message import Message as TuiMessage
 from textual.widgets import Footer, Header, RichLog, TextArea, Static
 
-from Alincode.agent import Agent, Mode, Phase as AgentPhase
+from Alincode.agent import Agent, Phase as AgentPhase
 from Alincode.client import BaseProvider
 from Alincode.conversation import ConversationManager
+from Alincode.permission import Mode, ApprovalRequest, Outcome
+from Alincode.permission.engine import PermissionEngine
 from Alincode.prompts import SYSTEM_PROMPT, EXECUTE_DIRECTIVE
 from Alincode.tools import Registry
 
@@ -48,11 +50,25 @@ class ToolDisplay:
 # ── ChatLog ───────────────────────────────────────────────
 
 class ChatLog(RichLog):
-    """对话日志——只做永久消息写入，不管流式。"""
+    """对话日志——只做永久消息写入，不管流式。审批态接受方向键。"""
+
+    BINDINGS = [
+        Binding("up", "approve_up_in_log", "", show=False),
+        Binding("down", "approve_down_in_log", "", show=False),
+    ]
 
     def __init__(self, **kwargs) -> None:
         super().__init__(highlight=True, markup=True, wrap=True, max_lines=10000, **kwargs)
         self.can_focus = False
+
+    def action_approve_up_in_log(self) -> None:
+        """转发给 App。"""
+        if hasattr(self.app, '_pending_approval') and self.app._pending_approval:
+            self.app.action_approve_up()
+
+    def action_approve_down_in_log(self) -> None:
+        if hasattr(self.app, '_pending_approval') and self.app._pending_approval:
+            self.app.action_approve_down()
 
     def append_user(self, text: str) -> None:
         self.write("")
@@ -137,20 +153,29 @@ class AlinCodeApp(App):
     BINDINGS = [
         Binding("ctrl+c", "cancel_or_quit", "Cancel/Exit", show=True),
         Binding("escape", "cancel_turn", "Cancel", show=False),
+        Binding("ctrl+p", "cycle_mode", "Mode", show=False, priority=True),
+        Binding("1", "approve_1", "", show=False),
+        Binding("2", "approve_2", "", show=False),
+        Binding("3", "approve_3", "", show=False),
+        Binding("up", "approve_up", "", show=False),
+        Binding("down", "approve_down", "", show=False),
+        Binding("space", "approve_enter", "", show=False),
         Binding("pageup", "scroll_up", "PgUp", show=False),
         Binding("pagedown", "scroll_down", "PgDn", show=False),
         Binding("ctrl+home", "scroll_home", "Top", show=False),
         Binding("ctrl+end", "scroll_end", "End", show=False),
     ]
 
-    def __init__(self, provider: BaseProvider, model: str, registry: Registry) -> None:
+    def __init__(self, provider: BaseProvider, model: str, registry: Registry,
+                 engine: PermissionEngine | None = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
         self._tool_registry = registry
+        self._engine = engine or PermissionEngine()
         self._conv = ConversationManager()
         self._chatting = False
-        self._mode: Mode = Mode.NORMAL
+        self._mode: Mode = Mode.DEFAULT
         self._stream_task: asyncio.Task | None = None
         self._turn_cancel: asyncio.Event | None = None
         self._cur_tools: list[ToolDisplay] = []
@@ -159,6 +184,8 @@ class AlinCodeApp(App):
         self._usage_out: int = 0
         self._refresh_timer: asyncio.Task | None = None
         self._stream_started_at: float = 0.0
+        self._pending_approval: ApprovalRequest | None = None
+        self._approve_cursor: int = 0  # 0=允许本次, 1=永久允许, 2=拒绝本次
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -166,6 +193,7 @@ class AlinCodeApp(App):
         yield StreamText(id="stream-text")
         yield StreamIndicator(id="stream-indicator")
         yield MessageInput(id="message-input")
+        yield Static(id="quick-bar")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -191,6 +219,7 @@ class AlinCodeApp(App):
         self._update_status()
         self._conv.add_system(SYSTEM_PROMPT)
         self._update_indicator()
+        self._update_quick_bar()
         self.query_one("#message-input", TextArea).focus()
 
     def _stream_widget(self) -> StreamText:
@@ -198,10 +227,36 @@ class AlinCodeApp(App):
 
     # ── Status ──────────────────────────────────────────
 
+    def _update_quick_bar(self) -> None:
+        """更新输入框下的快捷栏：模式切换 + 模型名。"""
+        bar = self.query_one("#quick-bar", Static)
+        modes = [
+            ("default", "Default"),
+            ("acceptEdits", "AcceptEdits"),
+            ("plan", "Plan"),
+            ("bypass", "Bypass"),
+        ]
+        parts = ["[bold]权限模式:[/]"]
+        for val, label in modes:
+            mode_key = {"default": Mode.DEFAULT, "acceptEdits": Mode.ACCEPT_EDITS,
+                        "plan": Mode.PLAN, "bypass": Mode.BYPASS}[val]
+            if self._mode == mode_key:
+                parts.append(f" [bold white on #5f87ff] {label} [/]")
+            else:
+                parts.append(f" [dim]{label}[/]")
+        parts.append(f"    [dim]模型: {self._model}[/]")
+        parts.append("    [dim]Ctrl+P 切换模式[/]")
+        bar.update("".join(parts))
+
     def _update_status(self) -> None:
-        parts = [self._provider.provider_name]
-        if self._mode == Mode.PLAN:
-            parts.append("[bold #ffaa00]PLAN[/]")
+        mode_labels = {
+            Mode.DEFAULT: "DEFAULT",
+            Mode.ACCEPT_EDITS: "ACCEPT EDITS",
+            Mode.PLAN: "PLAN",
+            Mode.BYPASS: "BYPASS",
+        }
+        label = mode_labels.get(self._mode, str(self._mode.value))
+        parts = [f"[bold #ffaa00]{label}[/]"]
         parts.append(self._model)
         toks = []
         if self._usage_in:
@@ -223,7 +278,26 @@ class AlinCodeApp(App):
 
     def _update_indicator(self) -> None:
         indicator = self.query_one("#stream-indicator", StreamIndicator)
-        if self._cur_tools:
+        if self._pending_approval:
+            ap = self._pending_approval
+            c = self._approve_cursor
+            opts = [
+                ("[1] 允许本次", "#00d700"),
+                ("[2] 永久允许", "#ffaa00"),
+                ("[3] 拒绝本次", "#ff5555"),
+            ]
+            lines = []
+            for i, (label, color) in enumerate(opts):
+                if i == c:
+                    lines.append(f"  [bold white on {color}]  {label}  [/]")
+                else:
+                    lines.append(f"  [{color}]  {label}  [/]")
+            indicator.update(
+                f"[bold #ffaa00]🔒 待批准: {ap.tool_name}({ap.tool_args})[/]\n"
+                + "\n".join(lines)
+                + "\n[dim]↑↓ 选择  空格 确认  1/2/3 快捷  Esc 拒绝[/]"
+            )
+        elif self._cur_tools:
             lines = []
             for td in self._cur_tools:
                 lines.append(
@@ -248,14 +322,77 @@ class AlinCodeApp(App):
     # ── Keyboard ────────────────────────────────────────
 
     def action_cancel_or_quit(self) -> None:
-        if self._chatting and self._turn_cancel:
+        if self._pending_approval:
+            self._approve(Outcome.DENY_ONCE)
+        elif self._chatting and self._turn_cancel:
             self._turn_cancel.set()
         else:
             self.exit()
 
+    def action_cycle_mode(self) -> None:
+        """Shift+Tab：循环切换权限模式。"""
+        order = [Mode.DEFAULT, Mode.ACCEPT_EDITS, Mode.PLAN, Mode.BYPASS]
+        idx = order.index(self._mode) if self._mode in order else 0
+        self._mode = order[(idx + 1) % len(order)]
+        self._update_status()
+        chat_log = self.query_one("#chat-log", ChatLog)
+        mode_labels = {
+            Mode.DEFAULT: "DEFAULT — 只读放行，写/执行需确认",
+            Mode.ACCEPT_EDITS: "ACCEPT EDITS — 文件写放行，命令执行需确认",
+            Mode.PLAN: "PLAN — 仅只读工具，产出计划",
+            Mode.BYPASS: "BYPASS — 全部放行（黑名单/沙箱除外）",
+        }
+        chat_log.append_info(f"权限模式: {mode_labels.get(self._mode, '')}")
+        self._update_quick_bar()
+
+    def _approve(self, outcome: Outcome) -> None:
+        """用户做出审批选择。"""
+        if self._pending_approval and self._pending_approval.respond:
+            if not self._pending_approval.respond.done():
+                self._pending_approval.respond.set_result(outcome)
+            chat_log = self.query_one("#chat-log", ChatLog)
+            labels = {Outcome.ALLOW_ONCE: "允许本次", Outcome.ALLOW_FOREVER: "永久允许",
+                      Outcome.DENY_ONCE: "拒绝本次"}
+            chat_log.append_info(f"→ {labels.get(outcome, str(outcome))}")
+        self._pending_approval = None
+        self._approve_cursor = 0
+        chat_log = self.query_one("#chat-log", ChatLog)
+        chat_log.can_focus = False  # 恢复不可聚焦
+        self.query_one("#message-input", TextArea).focus()
+        self._update_indicator()
+
+    def action_approve_1(self) -> None:
+        if self._pending_approval:
+            self._approve(Outcome.ALLOW_ONCE)
+
+    def action_approve_2(self) -> None:
+        if self._pending_approval:
+            self._approve(Outcome.ALLOW_FOREVER)
+
+    def action_approve_3(self) -> None:
+        if self._pending_approval:
+            self._approve(Outcome.DENY_ONCE)
+
+    def action_approve_up(self) -> None:
+        if self._pending_approval:
+            self._approve_cursor = (self._approve_cursor - 1) % 3
+            self._update_indicator()
+
+    def action_approve_down(self) -> None:
+        if self._pending_approval:
+            self._approve_cursor = (self._approve_cursor + 1) % 3
+            self._update_indicator()
+
+    def action_approve_enter(self) -> None:
+        if self._pending_approval:
+            outcomes = [Outcome.ALLOW_ONCE, Outcome.ALLOW_FOREVER, Outcome.DENY_ONCE]
+            self._approve(outcomes[self._approve_cursor])
+
     def action_cancel_turn(self) -> None:
         if self._chatting and self._turn_cancel:
             self._turn_cancel.set()
+        if self._pending_approval:
+            self._approve(Outcome.DENY_ONCE)
 
     def action_scroll_up(self) -> None:
         self.query_one("#chat-log", ChatLog).scroll_page_up()
@@ -290,11 +427,13 @@ class AlinCodeApp(App):
         if user_text == "/plan":
             self._mode = Mode.PLAN
             self._update_status()
+            self._update_quick_bar()
             chat_log.append_info("[PLAN] 计划模式——仅只读工具可用。完成后 /do 执行")
             return
         if user_text == "/do":
-            self._mode = Mode.NORMAL
+            self._mode = Mode.DEFAULT
             self._update_status()
+            self._update_quick_bar()
             chat_log.append_info("[DO] 执行模式——全部工具可用")
             self._conv.add_user(EXECUTE_DIRECTIVE)
             self._chatting = True
@@ -309,6 +448,7 @@ class AlinCodeApp(App):
         self._conv.add_user(user_text)
         self._update_status()
         self._chatting = True
+        self._update_quick_bar()
         self._start_agent(chat_log)
 
     def _start_agent(self, chat_log: ChatLog) -> None:
@@ -321,7 +461,7 @@ class AlinCodeApp(App):
         self._refresh_timer = asyncio.create_task(self._indicator_loop())
 
     async def _consume_events(self, chat_log: ChatLog) -> None:
-        agent = Agent(self._provider, self._tool_registry, self._model, version="0.3.0")
+        agent = Agent(self._provider, self._tool_registry, self._model, version="0.3.0", engine=self._engine)
         accumulated = ""
         stream_widget = self._stream_widget()
 
@@ -381,6 +521,26 @@ class AlinCodeApp(App):
                         self._cur_tools.pop(0)
                     self._update_indicator()
 
+                if ev.approval:
+                    # 人在回路——显示交互式审批提示
+                    self._pending_approval = ev.approval
+                    self._approve_cursor = 0
+                    chat_log.can_focus = True
+                    chat_log.focus()
+                    approval = ev.approval
+                    chat_log.write("")
+                    chat_log.write(
+                        f"[bold #ffaa00]━━━ 权限确认 ━━━[/]\n"
+                        f"  工具: [bold]{approval.tool_name}({approval.tool_args})[/]\n"
+                        f"  原因: {approval.reason}\n\n"
+                        f"  [bold on #00d700 #ffffff]  [1] 允许本次        [/]\n"
+                        f"  [bold #ffaa00]  [2] 永久允许        [/]\n"
+                        f"  [bold #ff5555]  [3] 拒绝本次        [/]\n"
+                        f"  [dim]↑↓ 选择  空格 确认  Esc 拒绝[/]"
+                    )
+                    chat_log.write("")
+                    self._update_indicator()
+
                 if ev.done:
                     _commit_to_log(accumulated)
                     accumulated = ""
@@ -405,5 +565,6 @@ class AlinCodeApp(App):
             self._stream_started_at = 0
             self._update_indicator()
             self._update_status()
+            self._update_quick_bar()
             if self._refresh_timer:
                 self._refresh_timer.cancel()

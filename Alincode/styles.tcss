@@ -61,3 +61,11 @@ Footer {
 #message-input:focus {
     border: solid #5f87ff;
 }
+
+#quick-bar {
+    background: #1e1e1e;
+    color: #888888;
+    height: auto;
+    padding: 0 1;
+    min-height: 1;
+}
