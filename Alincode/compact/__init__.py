@@ -1,0 +1,87 @@
+"""上下文管理：两层压缩策略，保证长会话不因上下文溢出而中断。"""
+
+from Alincode.compact.compact import manage_context, TriggerKind, ManageInput, ManageOutput
+from Alincode.compact.state import (
+    ContentReplacementState,
+    AutoCompactTrackingState,
+    RecoveryState,
+    FileReadRecord,
+    SessionContext,
+    new_session_context,
+)
+from Alincode.compact.const import (
+    SINGLE_RESULT_LIMIT,
+    MESSAGE_AGGREGATE_LIMIT,
+    SUMMARY_RESERVE,
+    AUTO_SAFETY_MARGIN,
+    MANUAL_SAFETY_MARGIN,
+    RECOVERY_FILE_LIMIT,
+    RECOVERY_TOKENS_PER_FILE,
+    RECENT_KEEP_TOKENS,
+    RECENT_KEEP_MESSAGES,
+    MAX_CONSECUTIVE_AUTO_COMPACT_FAILURES,
+    PTL_RETRY_LIMIT,
+    PTL_DROP_PERCENTAGE,
+    ESTIMATE_CHARS_PER_TOKEN,
+    PREVIEW_HEAD_BYTES,
+    PREVIEW_HEAD_LINES,
+)
+from Alincode.compact.token import estimate_tokens, usage_anchor, message_chars
+from Alincode.compact.layer1 import offload_and_snip, spill_single, build_preview
+from Alincode.compact.summary_prompt import build_summary_prompt, serialize_conversation, extract_summary
+from Alincode.compact.recovery import build_recovery_attachment, BOUNDARY_NOTICE
+from Alincode.compact.layer2 import (
+    auto_compact,
+    force_compact,
+    run_summary,
+    summarize_once,
+    ptl_retry,
+    pick_recent_tail,
+    group_by_user_turn,
+)
+
+__all__ = [
+    "manage_context",
+    "TriggerKind",
+    "ManageInput",
+    "ManageOutput",
+    "ContentReplacementState",
+    "AutoCompactTrackingState",
+    "RecoveryState",
+    "FileReadRecord",
+    "SessionContext",
+    "new_session_context",
+    "SINGLE_RESULT_LIMIT",
+    "MESSAGE_AGGREGATE_LIMIT",
+    "SUMMARY_RESERVE",
+    "AUTO_SAFETY_MARGIN",
+    "MANUAL_SAFETY_MARGIN",
+    "RECOVERY_FILE_LIMIT",
+    "RECOVERY_TOKENS_PER_FILE",
+    "RECENT_KEEP_TOKENS",
+    "RECENT_KEEP_MESSAGES",
+    "MAX_CONSECUTIVE_AUTO_COMPACT_FAILURES",
+    "PTL_RETRY_LIMIT",
+    "PTL_DROP_PERCENTAGE",
+    "ESTIMATE_CHARS_PER_TOKEN",
+    "PREVIEW_HEAD_BYTES",
+    "PREVIEW_HEAD_LINES",
+    "estimate_tokens",
+    "usage_anchor",
+    "message_chars",
+    "offload_and_snip",
+    "spill_single",
+    "build_preview",
+    "build_summary_prompt",
+    "serialize_conversation",
+    "extract_summary",
+    "build_recovery_attachment",
+    "BOUNDARY_NOTICE",
+    "auto_compact",
+    "force_compact",
+    "run_summary",
+    "summarize_once",
+    "ptl_retry",
+    "pick_recent_tail",
+    "group_by_user_turn",
+]

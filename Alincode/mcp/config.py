@@ -157,8 +157,44 @@ def _validate_server(name: str, srv: _RawServer) -> ServerConfig | None:
 
 # ── 公共入口 ──────────────────────────────────────────
 
+def load_from_dict(raw_servers: dict) -> Config:
+    """从统一配置文件的 mcp_servers 段直接解析。
+
+    不读文件、不做两层合并——合并已在 ConfigLoader 层完成。
+    永不抛异常（降级为空 Config）。
+    """
+    if not isinstance(raw_servers, dict):
+        return Config()
+
+    servers_raw: dict[str, _RawServer] = {}
+    for name, srv_data in raw_servers.items():
+        if not isinstance(srv_data, dict):
+            continue
+        servers_raw[name] = _RawServer(
+            type=str(srv_data.get("type", "")).strip(),
+            command=str(srv_data.get("command", "")).strip(),
+            args=_as_str_list(srv_data.get("args")),
+            env=_as_str_map(srv_data.get("env")),
+            url=str(srv_data.get("url", "")).strip(),
+            headers=_as_str_map(srv_data.get("headers")),
+        )
+
+    for name, srv in servers_raw.items():
+        _apply_expansion(name, srv)
+
+    result = Config()
+    for name, srv in servers_raw.items():
+        sc = _validate_server(name, srv)
+        if sc:
+            result.servers[name] = sc
+    return result
+
+
 def load_config(root: str) -> Config:
-    """加载并合并两层 MCP 配置。永不抛异常（降级为空 Config）。"""
+    """加载并合并两层 MCP 配置。永不抛异常（降级为空 Config）。
+
+    保留用于向后兼容独立 mcp.yaml 的场景。
+    """
     user_path = Path.home() / ".alincode" / "config.yaml"
     project_path = Path(root) / ".Alincode" / "mcp.yaml"
 

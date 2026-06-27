@@ -7,6 +7,7 @@ import yaml
 from Alincode.mcp.config import (
     Config,
     load_config,
+    load_from_dict,
     _expand_vars,
     _validate_server,
     _RawServer,
@@ -108,3 +109,27 @@ def test_load_config_file_exists_no_mcp_servers_key(tmp_path):
         assert cfg.servers == {}
     finally:
         cfg_mod.Path.home = orig
+
+
+def test_load_from_dict_ok():
+    """从统一配置 dict 解析 MCP servers。"""
+    raw = {
+        "test_srv": {"type": "stdio", "command": "echo", "args": ["hello"]},
+    }
+    cfg = load_from_dict(raw)
+    assert "test_srv" in cfg.servers
+    assert cfg.servers["test_srv"].command == "echo"
+
+
+def test_load_from_dict_empty():
+    """空 dict → 空 Config。"""
+    cfg = load_from_dict({})
+    assert isinstance(cfg, Config)
+    assert cfg.servers == {}
+
+
+def test_load_from_dict_none():
+    """None → 空 Config。"""
+    cfg = load_from_dict(None)
+    assert isinstance(cfg, Config)
+    assert cfg.servers == {}

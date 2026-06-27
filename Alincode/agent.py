@@ -1,4 +1,4 @@
-"""Agent Loop 编排：多轮 ReAct + 权限检查（ASK 不阻塞）+ 逐字流式。"""
+"""Agent Loop 编排：多轮 ReAct + 权限检查（ASK 不阻塞）+ 逐字流式 + 上下文管理。"""
 
 from __future__ import annotations
 
@@ -7,10 +7,19 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import AsyncIterator
 
-from Alincode.client import BaseProvider, Request, System as SystemBlocks
+from Alincode.client import BaseProvider, PromptTooLongError, Request, System as SystemBlocks
+from Alincode.compact import (
+    manage_context,
+    TriggerKind,
+    ManageInput,
+    estimate_tokens,
+    usage_anchor as calc_usage_anchor,
+    MANUAL_SAFETY_MARGIN,
+)
 from Alincode.conversation import (
     ConversationManager,
     ToolCall,
+    ToolDefinition,
     ToolResult,
     Usage,
     NOTICE_MAX_ITER,
@@ -21,10 +30,26 @@ from Alincode.conversation import (
 from Alincode.permission import Verdict, Outcome, ApprovalRequest, Mode
 from Alincode.permission.engine import PermissionEngine
 from Alincode.prompt import build_system_prompt, gather_environment, plan_reminder
+from Alincode.runtime import SessionRuntime
 from Alincode.tools import Registry, Result, DEFAULT_TIMEOUT
 
 MAX_ITERATIONS = 25
 MAX_UNKNOWN_RUN = 3
+
+
+class CompactPhase(Enum):
+    BEFORE_AUTO = "before_auto"
+    AFTER_AUTO = "after_auto"
+    BEFORE_EMERGENCY = "before_emergency"
+    AFTER_EMERGENCY = "after_emergency"
+
+
+@dataclass
+class CompactEvent:
+    phase: CompactPhase
+    before: int = 0
+    after: int = 0
+    err: Exception | None = None
 
 
 class Phase(Enum):
@@ -51,6 +76,7 @@ class Event:
     done: bool = False
     err: Exception | None = None
     approval: ApprovalRequest | None = None
+    compact: CompactEvent | None = None
 
 
 def _args_preview(c: ToolCall) -> str:
@@ -71,12 +97,16 @@ class Agent:
         model: str = "",
         version: str = "0.3.0",
         engine: PermissionEngine | None = None,
+        *,
+        runtime: SessionRuntime | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
         self._model = model
         self._version = version
         self._engine = engine or PermissionEngine()
+        self.runtime = runtime or SessionRuntime()
+        self._run_lock = asyncio.Lock()
 
     async def run(
         self,
@@ -87,6 +117,16 @@ class Agent:
         if cancel is None:
             cancel = asyncio.Event()
 
+        async with self._run_lock:
+            async for ev in self._run_impl(conv, mode, cancel):
+                yield ev
+
+    async def _run_impl(
+        self,
+        conv: ConversationManager,
+        mode: Mode,
+        cancel: asyncio.Event,
+    ) -> AsyncIterator[Event]:
         env = await gather_environment(
             cwd=None, version=self._version, model=self._model
         )
@@ -108,6 +148,54 @@ class Agent:
                 return
 
             yield Event(iter=iteration)
+
+            # ── 上下文管理 ──────────────────────────
+            async with self.runtime._lock:
+                anchor = self.runtime.usage_anchor
+                anchor_len = self.runtime.anchor_msg_len
+                cw = self.runtime.context_window
+            c_msgs = conv.messages
+            est = estimate_tokens(anchor, c_msgs, anchor_len)
+
+            threshold = cw - 33000 if cw > 33000 else 0
+            will_summarize = threshold > 0 and est >= threshold
+
+            if will_summarize:
+                yield Event(compact=CompactEvent(phase=CompactPhase.BEFORE_AUTO))
+
+            in_ = ManageInput(
+                conv=conv,
+                provider=self._provider,
+                context_window=cw,
+                tool_defs=defs,
+                replacement=self.runtime.replacement,
+                recovery=self.runtime.recovery,
+                auto_tracking=self.runtime.auto_tracking,
+                session=self.runtime.session,
+                usage_anchor=anchor,
+                anchor_msg_len=anchor_len,
+                estimated_token=est,
+                trigger=TriggerKind.AUTO,
+                model=self._model,
+            )
+            try:
+                out = await manage_context(in_)
+                mc_err = None
+            except Exception as e:
+                mc_err = e
+                out = None
+
+            if will_summarize:
+                yield Event(compact=CompactEvent(
+                    phase=CompactPhase.AFTER_AUTO,
+                    before=est,
+                    after=out.after_tokens if out else 0,
+                    err=mc_err,
+                ))
+            if mc_err:
+                yield Event(err=mc_err, notice=str(mc_err), done=True)
+                conv.ensure_assistant_tail(str(mc_err))
+                return
 
             reminder = plan_reminder(iteration) if mode == Mode.PLAN else ""
             req = Request(
@@ -151,6 +239,90 @@ class Agent:
                     usage=Usage(input_tokens=total_input, output_tokens=total_output)
                 )
 
+            # ── 紧急压缩 ──────────────────────────
+            emergency_retried = False
+            if isinstance(err, PromptTooLongError) and not emergency_retried:
+                emergency_retried = True
+                yield Event(compact=CompactEvent(phase=CompactPhase.BEFORE_EMERGENCY))
+
+                ein = ManageInput(
+                    conv=conv,
+                    provider=self._provider,
+                    context_window=cw,
+                    tool_defs=defs,
+                    replacement=self.runtime.replacement,
+                    recovery=self.runtime.recovery,
+                    auto_tracking=self.runtime.auto_tracking,
+                    session=self.runtime.session,
+                    usage_anchor=anchor,
+                    anchor_msg_len=anchor_len,
+                    estimated_token=est,
+                    trigger=TriggerKind.EMERGENCY,
+                    model=self._model,
+                )
+                e_out = None
+                e_err = None
+                try:
+                    e_out = await manage_context(ein)
+                except Exception as exc:
+                    e_err = exc
+
+                yield Event(compact=CompactEvent(
+                    phase=CompactPhase.AFTER_EMERGENCY,
+                    before=est,
+                    after=e_out.after_tokens if e_out else 0,
+                    err=e_err,
+                ))
+
+                if e_err:
+                    yield Event(err=e_err, notice=str(e_err), done=True)
+                    conv.ensure_assistant_tail(str(e_err))
+                    return
+
+                # 重置锚点，重估
+                async with self.runtime._lock:
+                    self.runtime.usage_anchor = 0
+                    self.runtime.anchor_msg_len = 0
+                est2 = estimate_tokens(0, conv.messages, 0)
+                if est2 >= cw - MANUAL_SAFETY_MARGIN:
+                    yield Event(err=err, notice="紧急压缩后仍超窗口", done=True)
+                    conv.ensure_assistant_tail("紧急压缩后仍超窗口")
+                    return
+
+                # 重试
+                retry_req = Request(
+                    system=SystemBlocks(stable=stable, environment=env_block),
+                    messages=conv.messages,
+                    model=self._model,
+                    tools=defs,
+                    reminder=reminder,
+                )
+                preamble = ""
+                tool_calls.clear()
+                err = None
+                tu_in, tu_out = 0, 0
+                try:
+                    async for se in self._provider.stream(retry_req):
+                        if cancel.is_set():
+                            break
+                        if se.err:
+                            err = se.err
+                            break
+                        if se.text:
+                            preamble += se.text
+                            yield Event(text=se.text)
+                        if se.usage:
+                            tu_in += se.usage.input_tokens
+                            tu_out += se.usage.output_tokens
+                        if se.tool_calls:
+                            tool_calls.extend(se.tool_calls)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e2:
+                    err = e2
+                total_input += tu_in
+                total_output += tu_out
+
             if cancel.is_set():
                 yield Event(notice=NOTICE_CANCELLED, done=True)
                 conv.ensure_assistant_tail(NOTICE_CANCELLED)
@@ -159,6 +331,14 @@ class Agent:
                 yield Event(err=err, notice=NOTICE_PROVIDER_ERROR, done=True)
                 conv.ensure_assistant_tail(NOTICE_PROVIDER_ERROR)
                 return
+
+            # 更新锚点（主对话路径）
+            if tu_in or tu_out:
+                u = Usage(input_tokens=tu_in, output_tokens=tu_out)
+                async with self.runtime._lock:
+                    self.runtime.usage_anchor = calc_usage_anchor(u)
+                    self.runtime.anchor_msg_len = conv.length()
+
             if not tool_calls:
                 if preamble.strip():
                     conv.add_assistant(preamble)
@@ -240,10 +420,60 @@ class Agent:
                 )
                 for call, br in zip(tool_calls, batch_results)
             ]
+
+            # ── ReadFile 追踪 ───────────────────────
+            for call, br in zip(tool_calls, batch_results):
+                if call.name == "read_file" and not br.result.is_error:
+                    try:
+                        import json
+                        args = json.loads(call.input) if call.input else {}
+                        path = args.get("path", "")
+                        if path:
+                            import pathlib
+                            abs_path = str(pathlib.Path(path).resolve())
+                            data = await asyncio.to_thread(
+                                pathlib.Path(abs_path).read_bytes
+                            )
+                            self.runtime.recovery.record_file(
+                                abs_path, data.decode("utf-8", errors="replace")
+                            )
+                    except (OSError, json.JSONDecodeError):
+                        pass
+
             conv.add_tool_results(tool_calls, tool_results)
 
         yield Event(notice=NOTICE_MAX_ITER, done=True)
         conv.ensure_assistant_tail(NOTICE_MAX_ITER)
+
+    async def run_force_compact(
+        self,
+        conv: ConversationManager,
+        tool_defs: list[ToolDefinition],
+    ) -> tuple[int, int]:
+        """手动 /compact：跳过阈值、熔断，无条件触发摘要。
+
+        TUI 在 asyncio.create_task 里调用。
+        入口先 async with self._run_lock 保证不与 run 并发。
+        """
+        async with self._run_lock:
+            est = estimate_tokens(0, conv.messages, 0)
+            in_ = ManageInput(
+                conv=conv,
+                provider=self._provider,
+                context_window=self.runtime.context_window,
+                tool_defs=tool_defs,
+                replacement=self.runtime.replacement,
+                recovery=self.runtime.recovery,
+                auto_tracking=self.runtime.auto_tracking,
+                session=self.runtime.session,
+                usage_anchor=0,
+                anchor_msg_len=0,
+                estimated_token=est,
+                trigger=TriggerKind.MANUAL,
+                model=self._model,
+            )
+            out = await manage_context(in_)
+            return (out.before_tokens, out.after_tokens)
 
     def _build_batch_results(
         self, calls: list[ToolCall], mode: Mode,

@@ -11,12 +11,13 @@ from textual.binding import Binding
 from textual.message import Message as TuiMessage
 from textual.widgets import Footer, Header, RichLog, TextArea, Static
 
-from Alincode.agent import Agent, Phase as AgentPhase
+from Alincode.agent import Agent, CompactPhase, CompactEvent, Phase as AgentPhase
 from Alincode.client import BaseProvider
 from Alincode.conversation import ConversationManager
 from Alincode.permission import Mode, ApprovalRequest, Outcome
 from Alincode.permission.engine import PermissionEngine
 from Alincode.prompts import SYSTEM_PROMPT, EXECUTE_DIRECTIVE
+from Alincode.runtime import SessionRuntime
 from Alincode.tools import Registry
 
 
@@ -146,6 +147,21 @@ def _fmt_dur(secs: float) -> str:
 
 # ── AlinCodeApp ──────────────────────────────────────────
 
+# ── Compact 系统消息格式化 ──────────────────────────
+
+def format_compact_notice(ev: CompactEvent) -> str:
+    """按 phase 渲染压缩状态提示（自动/紧急/手动三条路径共用）。"""
+    if ev.phase == CompactPhase.BEFORE_AUTO:
+        return "正在压缩上下文..."
+    if ev.phase == CompactPhase.BEFORE_EMERGENCY:
+        return "上下文撞墙，自动压缩中..."
+    if ev.phase in (CompactPhase.AFTER_AUTO, CompactPhase.AFTER_EMERGENCY):
+        if ev.err:
+            return f"压缩失败：{ev.err}"
+        return f"已压缩，token 从 {ev.before} 降至 {ev.after}"
+    return ""
+
+
 class AlinCodeApp(App):
     TITLE = "AlinCode"
     CSS_PATH = "styles.tcss"
@@ -167,12 +183,19 @@ class AlinCodeApp(App):
     ]
 
     def __init__(self, provider: BaseProvider, model: str, registry: Registry,
-                 engine: PermissionEngine | None = None) -> None:
+                 engine: PermissionEngine | None = None,
+                 runtime: SessionRuntime | None = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
         self._tool_registry = registry
         self._engine = engine or PermissionEngine()
+        self.runtime = runtime or SessionRuntime()
+        self.agent = Agent(
+            provider=provider, registry=registry, model=model,
+            version="0.3.0", engine=self._engine,
+            runtime=self.runtime,
+        )
         self._conv = ConversationManager()
         self._chatting = False
         self._mode: Mode = Mode.DEFAULT
@@ -451,6 +474,20 @@ class AlinCodeApp(App):
             self._chatting = True
             self._start_agent(chat_log)
             return
+        if user_text == "/compact":
+            if self._chatting:
+                chat_log.append_info("请等待当前回复完成后再压缩...")
+                return
+            # 在后台触发压缩
+            asyncio.create_task(self._do_compact(chat_log))
+            return
+
+        # 未知斜杠命令
+        if user_text.startswith("/"):
+            chat_log.append_info(
+                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /tools /clear"
+            )
+            return
 
         if self._chatting:
             chat_log.append_info("请等待当前回复完成...")
@@ -463,6 +500,19 @@ class AlinCodeApp(App):
         self._update_quick_bar()
         self._start_agent(chat_log)
 
+    async def _do_compact(self, chat_log: ChatLog) -> None:
+        """后台执行 /compact：调 agent.run_force_compact 并显示结果。"""
+        from Alincode.agent import CompactPhase
+        from Alincode.agent import CompactEvent as CE
+        try:
+            defs = self._tool_registry.definitions()
+            before, after = await self.agent.run_force_compact(self._conv, defs)
+            ev = CE(phase=CompactPhase.AFTER_AUTO, before=before, after=after)
+            chat_log.append_notice(format_compact_notice(ev))
+        except Exception as exc:
+            ev = CE(phase=CompactPhase.AFTER_AUTO, before=0, after=0, err=exc)
+            chat_log.append_notice(format_compact_notice(ev))
+
     def _start_agent(self, chat_log: ChatLog) -> None:
         self._turn_cancel = asyncio.Event()
         self._iter = 0
@@ -473,7 +523,6 @@ class AlinCodeApp(App):
         self._refresh_timer = asyncio.create_task(self._indicator_loop())
 
     async def _consume_events(self, chat_log: ChatLog) -> None:
-        agent = Agent(self._provider, self._tool_registry, self._model, version="0.3.0", engine=self._engine)
         accumulated = ""
         stream_widget = self._stream_widget()
 
@@ -487,7 +536,13 @@ class AlinCodeApp(App):
             chat_log.write(Markdown(text.strip()))
 
         try:
-            async for ev in agent.run(self._conv, mode=self._mode, cancel=self._turn_cancel):
+            async for ev in self.agent.run(self._conv, mode=self._mode, cancel=self._turn_cancel):
+                if ev.compact:
+                    # 上下文压缩状态事件（不写入 conversation）
+                    notice = format_compact_notice(ev.compact)
+                    chat_log.append_notice(notice)
+                    continue
+
                 if ev.err:
                     _commit_to_log(accumulated)
                     accumulated = ""

@@ -24,6 +24,12 @@ from Alincode.conversation import (
 )
 
 
+# ── 哨兵异常 ──────────────────────────────────────
+
+class PromptTooLongError(Exception):
+    """Provider 上报上下文超出窗口时统一抛出的哨兵异常。"""
+
+
 # ── 请求结构 ──────────────────────────────────────
 
 @dataclass
@@ -145,7 +151,8 @@ class AnthropicProvider(BaseProvider):
                 yield StreamEvent(done=True)
 
         except Exception as e:
-            yield StreamEvent(err=e)
+            err = _wrap_anthropic_ptl(e)
+            yield StreamEvent(err=err)
             yield StreamEvent(done=True)
 
 
@@ -213,8 +220,35 @@ class OpenAIProvider(BaseProvider):
             yield StreamEvent(done=True)
 
         except Exception as e:
-            yield StreamEvent(err=e)
+            err = _wrap_openai_ptl(e)
+            yield StreamEvent(err=err)
             yield StreamEvent(done=True)
+
+
+# ── PTL 错误包装 ──────────────────────────────────────
+
+def _wrap_anthropic_ptl(orig: Exception) -> Exception:
+    """若是 Anthropic prompt_too_long 错误则包装为 PromptTooLongError。"""
+    cls = type(orig).__name__
+    msg = str(orig).lower()
+    if "bad_request" in cls.lower() or "badrequest" in cls.lower():
+        if "prompt is too long" in msg or "context_length" in msg:
+            wrapped = PromptTooLongError("anthropic prompt too long")
+            wrapped.__cause__ = orig
+            return wrapped
+    return orig
+
+
+def _wrap_openai_ptl(orig: Exception) -> Exception:
+    """若是 OpenAI context_length_exceeded 错误则包装为 PromptTooLongError。"""
+    cls = type(orig).__name__
+    msg = str(orig).lower()
+    if "bad_request" in cls.lower() or "badrequest" in cls.lower():
+        if "context_length_exceeded" in msg:
+            wrapped = PromptTooLongError("openai context too long")
+            wrapped.__cause__ = orig
+            return wrapped
+    return orig
 
 
 # ── 辅助函数 ──────────────────────────────────────────

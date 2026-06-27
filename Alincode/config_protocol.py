@@ -1,0 +1,4 @@
+"""协议默认值常量——定义在 config 自身，不放入 compact 包，避免循环引用。"""
+
+DEFAULT_ANTHROPIC_CONTEXT_WINDOW = 200000
+DEFAULT_OPENAI_CONTEXT_WINDOW = 128000

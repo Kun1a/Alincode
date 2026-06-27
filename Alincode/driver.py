@@ -3,24 +3,38 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
-from Alincode.config import ConfigLoader
+from Alincode.config import ConfigLoader, effective_context_window
 from Alincode.client import create_provider
+from Alincode.compact.state import (
+    ContentReplacementState,
+    RecoveryState,
+    AutoCompactTrackingState,
+    new_session_context,
+)
+from Alincode.runtime import SessionRuntime
 from Alincode.tools import new_default_registry
 from Alincode.permission.engine import new_engine
-from Alincode.mcp import load_config as mcp_load_config, new_manager as mcp_new_manager
+from Alincode.mcp import load_from_dict as mcp_from_dict, new_manager as mcp_new_manager
 from Alincode.app import AlinCodeApp
 
 
 DEFAULT_CONFIG_PATHS = [
+    Path(".Alincode/config.yaml"),
     Path(".Alincode/skills/config.yaml"),
     Path("config.yaml"),
 ]
 
 
 async def _amain(config_path: str | None = None) -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(name)s] %(message)s",
+        stream=sys.stderr,
+    )
     if config_path is None:
         for p in DEFAULT_CONFIG_PATHS:
             if p.is_file():
@@ -31,13 +45,19 @@ async def _amain(config_path: str | None = None) -> None:
             print("请复制 config.example.yaml 为 config.yaml 或 .Alincode/skills/config.yaml")
             raise SystemExit(1)
 
-    config = ConfigLoader.load(config_path)
-    provider = create_provider(config)
+    app_cfg = ConfigLoader.load(config_path)
+    if not app_cfg.providers:
+        print("错误: 配置文件中没有有效的 provider")
+        raise SystemExit(1)
+
+    # 取第一个 provider（未来可选）
+    provider_cfg = app_cfg.providers[0]
+    provider = create_provider(provider_cfg)
     registry = new_default_registry()
 
     # ── MCP 工具发现与注册 ────────────────────────
     root = str(Path.cwd().resolve())
-    mcp_cfg = mcp_load_config(root)
+    mcp_cfg = mcp_from_dict(app_cfg.mcp_servers)
     mcp_mgr = await mcp_new_manager(mcp_cfg, version="0.3.0")
     try:
         mcp_count = len(mcp_mgr.tools())
@@ -54,7 +74,20 @@ async def _amain(config_path: str | None = None) -> None:
     if err:
         print(f"权限引擎降级: {err}", file=sys.stderr)
 
-    app = AlinCodeApp(provider=provider, model=config.model, registry=registry, engine=engine)
+    # ── 会话运行时 ─────────────────────────────────
+    workspace = str(Path.cwd().resolve())
+    runtime = SessionRuntime(
+        replacement=ContentReplacementState(),
+        recovery=RecoveryState(),
+        auto_tracking=AutoCompactTrackingState(),
+        session=new_session_context(workspace),
+        context_window=effective_context_window(provider_cfg),
+    )
+
+    app = AlinCodeApp(
+        provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
+        runtime=runtime,
+    )
     try:
         await app.run_async()
     finally:

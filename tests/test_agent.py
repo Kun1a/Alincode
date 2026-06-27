@@ -317,3 +317,95 @@ async def test_plan_reminder_by_iteration():
     # Reminder was injected in each call
     # Iter 1 → full, Iter 2 → lite, Iter 3 → lite
     assert provider.call_count >= 2
+
+
+# ── Compact Events ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_agent_compact_event_below_threshold():
+    """估算 token 远低于阈值时不发 Compact 事件。"""
+    from Alincode.runtime import SessionRuntime
+    from Alincode.compact.state import (
+        ContentReplacementState, RecoveryState,
+        AutoCompactTrackingState, new_session_context,
+    )
+
+    conv = ConversationManager()
+    conv.add_user("hello")
+    reg = Registry()
+
+    runtime = SessionRuntime(
+        replacement=ContentReplacementState(),
+        recovery=RecoveryState(),
+        auto_tracking=AutoCompactTrackingState(),
+        session=new_session_context("."),
+        context_window=200000,
+    )
+
+    provider = FakeProvider([[StreamEvent(text="ok", done=True)]])
+    agent = Agent(provider, reg, runtime=runtime)
+    events = []
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
+        events.append(ev)
+
+    compact_events = [e.compact for e in events if e.compact]
+    assert len(compact_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_emits_emergency_compact_event():
+    """PTL 错误时发紧急压缩事件。"""
+    from Alincode.client import PromptTooLongError
+    from Alincode.runtime import SessionRuntime
+    from Alincode.compact.state import (
+        ContentReplacementState, RecoveryState,
+        AutoCompactTrackingState, new_session_context,
+    )
+
+    conv = ConversationManager()
+    conv.add_user("trigger ptl")
+    reg = Registry()
+
+    runtime = SessionRuntime(
+        replacement=ContentReplacementState(),
+        recovery=RecoveryState(),
+        auto_tracking=AutoCompactTrackingState(),
+        session=new_session_context("."),
+        context_window=200000,
+    )
+
+    # Series: PTL error (emergency compact will try to retry, then fail)
+    # The provider needs at least 2 entries: one for initial error, one for retry
+    provider = FakeProvider([
+        [StreamEvent(err=PromptTooLongError("test ptl"), done=True)],
+        [StreamEvent(text="retry ok", done=True)],
+    ])
+    agent = Agent(provider, reg, runtime=runtime)
+    events = []
+    async for ev in agent.run(conv, mode=Mode.BYPASS):
+        events.append(ev)
+
+    compact_events = [e.compact for e in events if e.compact]
+    # Should have BEFORE_EMERGENCY and AFTER_EMERGENCY
+    assert len(compact_events) >= 1
+    # At least BEFORE_EMERGENCY
+    from Alincode.agent import CompactPhase
+    assert any(c.phase == CompactPhase.BEFORE_EMERGENCY for c in compact_events)
+
+
+@pytest.mark.asyncio
+async def test_agent_runtime_injection():
+    """Agent 构造接受 runtime 参数并正确注入。"""
+    from Alincode.runtime import SessionRuntime
+
+    conv = ConversationManager()
+    conv.add_user("test")
+    reg = Registry()
+    runtime = SessionRuntime(context_window=100000)
+    provider = FakeProvider([[StreamEvent(text="ok", done=True)]])
+    agent = Agent(provider, reg, runtime=runtime)
+    assert agent.runtime.context_window == 100000
+    assert agent.runtime is runtime
+
+    async for _ in agent.run(conv, mode=Mode.BYPASS):
+        pass
