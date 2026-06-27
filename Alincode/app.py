@@ -219,6 +219,15 @@ class AlinCodeApp(App):
         self._update_status()
         self._conv.add_system(SYSTEM_PROMPT)
         self._update_indicator()
+        # MCP 工具统计
+        all_tools = self._tool_registry.definitions()
+        mcp_tools = [d for d in all_tools if d.name.startswith("mcp__")]
+        if mcp_tools:
+            servers = len({t.name.split("__")[1] for t in mcp_tools})
+            chat_log.append_info(
+                f"Connected to {servers} MCP server(s), "
+                f"{len(mcp_tools)} tool(s) registered"
+            )
         self._update_quick_bar()
         self.query_one("#message-input", TextArea).focus()
 
@@ -277,7 +286,10 @@ class AlinCodeApp(App):
         return time.monotonic() - self._stream_started_at
 
     def _update_indicator(self) -> None:
-        indicator = self.query_one("#stream-indicator", StreamIndicator)
+        try:
+            indicator = self.query_one("#stream-indicator", StreamIndicator)
+        except Exception:
+            return  # widget 可能已销毁（关闭时）
         if self._pending_approval:
             ap = self._pending_approval
             c = self._approve_cursor
