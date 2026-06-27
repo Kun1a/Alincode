@@ -14,6 +14,8 @@ from Alincode.compact import (
     ManageInput,
     estimate_tokens,
     usage_anchor as calc_usage_anchor,
+    SUMMARY_RESERVE,
+    AUTO_SAFETY_MARGIN,
     MANUAL_SAFETY_MARGIN,
 )
 from Alincode.conversation import (
@@ -157,7 +159,7 @@ class Agent:
             c_msgs = conv.messages
             est = estimate_tokens(anchor, c_msgs, anchor_len)
 
-            threshold = cw - 33000 if cw > 33000 else 0
+            threshold = cw - SUMMARY_RESERVE - AUTO_SAFETY_MARGIN if cw > SUMMARY_RESERVE + AUTO_SAFETY_MARGIN else 0
             will_summarize = threshold > 0 and est >= threshold
 
             if will_summarize:

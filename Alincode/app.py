@@ -502,15 +502,13 @@ class AlinCodeApp(App):
 
     async def _do_compact(self, chat_log: ChatLog) -> None:
         """后台执行 /compact：调 agent.run_force_compact 并显示结果。"""
-        from Alincode.agent import CompactPhase
-        from Alincode.agent import CompactEvent as CE
         try:
             defs = self._tool_registry.definitions()
             before, after = await self.agent.run_force_compact(self._conv, defs)
-            ev = CE(phase=CompactPhase.AFTER_AUTO, before=before, after=after)
+            ev = CompactEvent(phase=CompactPhase.AFTER_AUTO, before=before, after=after)
             chat_log.append_notice(format_compact_notice(ev))
         except Exception as exc:
-            ev = CE(phase=CompactPhase.AFTER_AUTO, before=0, after=0, err=exc)
+            ev = CompactEvent(phase=CompactPhase.AFTER_AUTO, before=0, after=0, err=exc)
             chat_log.append_notice(format_compact_notice(ev))
 
     def _start_agent(self, chat_log: ChatLog) -> None:
