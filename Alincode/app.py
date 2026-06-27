@@ -609,6 +609,10 @@ class AlinCodeApp(App):
                 if ev.done:
                     _commit_to_log(accumulated)
                     accumulated = ""
+                    # 显示思考耗时
+                    dur = self._elapsed_since_stream_start()
+                    if dur > 0:
+                        chat_log.write(f"\n[dim]思考耗时 {_fmt_dur(dur)}[/]")
                     stream_widget.update("")
                     self._cur_tools = []
                     self._iter = 0

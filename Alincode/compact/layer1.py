@@ -19,6 +19,7 @@ def spill_single(session: SessionContext, tool_use_id: str, content: str) -> Non
     """把单条 tool_result 内容写入 spill_dir/<tool_use_id>。
 
     幂等：文件已存在则不重写、不报错。失败抛 OSError 由上层捕获。
+    目录懒创建：首次 spill 时才 mkdir。
     """
     import logging
     _log = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def spill_single(session: SessionContext, tool_use_id: str, content: str) -> Non
     if path.exists():
         _log.info("spill: id=%s already exists, skipping", tool_use_id)
         return
+    path.parent.mkdir(parents=True, exist_ok=True)
     _log.info("spill: writing %d bytes to %s", len(content.encode("utf-8")), path)
     path.write_bytes(content.encode("utf-8"))
 

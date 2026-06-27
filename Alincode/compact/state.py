@@ -36,12 +36,11 @@ class SessionContext:
 
 
 def new_session_context(workspace: str) -> SessionContext:
-    """创建会话上下文，自动建立落盘目录。"""
+    """创建会话上下文。落盘目录在首次 spill 时懒创建。"""
     session_id = _new_session_id()
     spill_dir = str(
         Path(workspace) / ".Alincode" / "sessions" / session_id / "tool-results"
     )
-    Path(spill_dir).mkdir(parents=True, exist_ok=True)
     return SessionContext(session_id=session_id, spill_dir=spill_dir)
 
 

@@ -13,13 +13,14 @@ from Alincode.compact.state import (
 
 # ── SessionContext ──────────────────────────────────
 
-def test_new_session_context_creates_dir(tmp_path):
-    """会话目录按需创建，session_id 格式正确。"""
+def test_new_session_context_lazy_dir(tmp_path):
+    """会话目录不预创建，首次 spill 时才建。"""
+    import os
     ctx = new_session_context(str(tmp_path))
     assert "-" in ctx.session_id
     assert ctx.spill_dir.endswith("tool-results")
-    import os
-    assert os.path.isdir(ctx.spill_dir)
+    # 目录尚未创建（懒创建）
+    assert not os.path.exists(ctx.spill_dir)
 
 
 def test_new_session_context_unique():

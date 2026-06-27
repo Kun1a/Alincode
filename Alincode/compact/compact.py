@@ -87,6 +87,12 @@ async def manage_context(in_: ManageInput) -> ManageOutput:
     if in_.trigger == TriggerKind.MANUAL:
         # 跳过 layer1、阈值、熔断；直接 force_compact
         new_msgs, before, after = await force_compact(in_)
+        if after >= before:
+            logger.info(
+                "manual compact: after (%d) >= before (%d), discarding",
+                after, before,
+            )
+            return ManageOutput(before_tokens=before, after_tokens=before)
         in_.conv.replace_messages(new_msgs)
         return ManageOutput(before_tokens=before, after_tokens=after)
 
@@ -95,6 +101,12 @@ async def manage_context(in_: ManageInput) -> ManageOutput:
         layer1_out = offload_and_snip(in_.conv.messages, in_.replacement, in_.session)
         in_.conv.replace_messages(layer1_out)
         new_msgs, before, after = await force_compact(in_)
+        if after >= before:
+            logger.info(
+                "emergency compact: after (%d) >= before (%d), discarding",
+                after, before,
+            )
+            return ManageOutput(before_tokens=before, after_tokens=before)
         in_.conv.replace_messages(new_msgs)
         return ManageOutput(before_tokens=before, after_tokens=after)
 
