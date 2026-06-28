@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import threading
 from dataclasses import dataclass, field
-from typing import Any, List, Literal, Optional
+from typing import Any, Callable, List, Literal, Optional
 
 # ── 角色常量 ─────────────────────────────────────────────
 
@@ -84,9 +84,27 @@ class Message:
 class ConversationManager:
     """对话状态管理器：维护消息历史、上下文窗口、轮次统计。"""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        on_append: Callable[[Message], None] | None = None,
+        on_replace: Callable[[list[Message]], None] | None = None,
+    ) -> None:
         self._lock = threading.RLock()
         self._messages: List[Message] = []
+        self._on_append = on_append
+        self._on_replace = on_replace
+
+    @classmethod
+    def from_messages(
+        cls,
+        msgs: list[Message],
+        on_append: Callable[[Message], None] | None = None,
+        on_replace: Callable[[list[Message]], None] | None = None,
+    ) -> "ConversationManager":
+        """从已有消息列表创建会话（恢复场景）。"""
+        conv = cls(on_append=on_append, on_replace=on_replace)
+        conv._messages = copy.deepcopy(msgs)
+        return conv
 
     def replace_messages(self, msgs: list[Message]) -> None:
         """把内存列表整体深拷贝替换为传入的 msgs。
@@ -96,6 +114,8 @@ class ConversationManager:
         """
         with self._lock:
             self._messages = copy.deepcopy(msgs) if msgs else []
+        if self._on_replace:
+            self._on_replace(list(self._messages))
 
     def length(self) -> int:
         """返回消息列表长度。"""
@@ -123,22 +143,31 @@ class ConversationManager:
 
     def add_user(self, text: str) -> None:
         """追加用户消息。"""
+        msg = Message(role=ROLE_USER, content=text)
         with self._lock:
-            self._messages.append(Message(role=ROLE_USER, content=text))
+            self._messages.append(msg)
+        if self._on_append:
+            self._on_append(msg)
 
     def add_assistant(self, text: str) -> None:
         """追加 AI 回复。"""
+        msg = Message(role=ROLE_ASSISTANT, content=text)
         with self._lock:
-            self._messages.append(Message(role=ROLE_ASSISTANT, content=text))
+            self._messages.append(msg)
+        if self._on_append:
+            self._on_append(msg)
 
     def add_assistant_with_tool_calls(self, text: str, calls: list[ToolCall]) -> None:
         """assistant 工具调用回合——preamble 文本 + 工具调用列表。"""
+        msg = Message(
+            role=ROLE_ASSISTANT,
+            content=text,
+            tool_calls=list(calls),
+        )
         with self._lock:
-            self._messages.append(Message(
-                role=ROLE_ASSISTANT,
-                content=text,
-                tool_calls=list(calls),
-            ))
+            self._messages.append(msg)
+        if self._on_append:
+            self._on_append(msg)
 
     def add_tool_results(self, calls: list[ToolCall], results: list[ToolResult]) -> None:
         """工具结果回合——同时存储 tool_calls 和 results，保证历史完整性。
@@ -147,12 +176,15 @@ class ConversationManager:
             calls: 本轮的原始工具调用列表（用于 assistant 端配对）
             results: 执行结果列表（一一对应 calls）
         """
+        msg = Message(
+            role=ROLE_TOOL,
+            tool_calls=list(calls),
+            tool_results=list(results),
+        )
         with self._lock:
-            self._messages.append(Message(
-                role=ROLE_TOOL,
-                tool_calls=list(calls),
-                tool_results=list(results),
-            ))
+            self._messages.append(msg)
+        if self._on_append:
+            self._on_append(msg)
 
     def ensure_assistant_tail(self, text: str = "") -> None:
         """确保历史以 assistant 消息结尾，必要时补一条。

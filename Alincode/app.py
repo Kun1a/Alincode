@@ -11,6 +11,10 @@ from textual.binding import Binding
 from textual.message import Message as TuiMessage
 from textual.widgets import Footer, Header, RichLog, TextArea, Static
 
+import os
+
+from typing import TYPE_CHECKING
+
 from Alincode.agent import Agent, CompactPhase, CompactEvent, Phase as AgentPhase
 from Alincode.client import BaseProvider
 from Alincode.conversation import ConversationManager
@@ -18,7 +22,11 @@ from Alincode.permission import Mode, ApprovalRequest, Outcome
 from Alincode.permission.engine import PermissionEngine
 from Alincode.prompts import SYSTEM_PROMPT, EXECUTE_DIRECTIVE
 from Alincode.runtime import SessionRuntime
+from Alincode.session import Writer as SessionWriter
 from Alincode.tools import Registry
+
+if TYPE_CHECKING:
+    from Alincode.memory import Manager as MemoryManager
 
 
 # ── Streaming text widget ─────────────────────────────────
@@ -184,19 +192,41 @@ class AlinCodeApp(App):
 
     def __init__(self, provider: BaseProvider, model: str, registry: Registry,
                  engine: PermissionEngine | None = None,
-                 runtime: SessionRuntime | None = None) -> None:
+                 runtime: SessionRuntime | None = None,
+                 instruction_text: str = "",
+                 memory_text: str = "",
+                 writer: SessionWriter | None = None,
+                 memory_manager: "MemoryManager | None" = None,
+                 workspace: str = "") -> None:
         super().__init__()
         self._provider = provider
         self._model = model
         self._tool_registry = registry
         self._engine = engine or PermissionEngine()
         self.runtime = runtime or SessionRuntime()
+        self.workspace = workspace or str(self.runtime.session.session_dir).replace(
+            os.sep + ".Alincode" + os.sep + "sessions" + os.sep + self.runtime.session.session_id, ""
+        )
+        self._instruction_text = instruction_text
+        self._memory_text = memory_text
+        self._writer = writer
+        self._memory_manager = memory_manager
+
+        # Conversation 回调 → Writer
+        on_append = writer.append if writer else None
+        on_replace = self._on_conv_replace if writer else None
+        self._conv = ConversationManager(
+            on_append=on_append, on_replace=on_replace,
+        )
+
         self.agent = Agent(
             provider=provider, registry=registry, model=model,
             version="0.3.0", engine=self._engine,
             runtime=self.runtime,
+            memory_manager=memory_manager,
+            instruction_text=instruction_text,
+            memory_text=memory_text,
         )
-        self._conv = ConversationManager()
         self._chatting = False
         self._mode: Mode = Mode.DEFAULT
         self._stream_task: asyncio.Task | None = None
@@ -208,7 +238,13 @@ class AlinCodeApp(App):
         self._refresh_timer: asyncio.Task | None = None
         self._stream_started_at: float = 0.0
         self._pending_approval: ApprovalRequest | None = None
-        self._approve_cursor: int = 0  # 0=允许本次, 1=永久允许, 2=拒绝本次
+        self._approve_cursor: int = 0
+
+    def _on_conv_replace(self, msgs: list) -> None:
+        """Conversation 替换 → JSONL compact 标记 + 重新追加。"""
+        if self._writer:
+            self._writer.write_compact_marker()
+            self._writer.append_all(msgs)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -478,14 +514,38 @@ class AlinCodeApp(App):
             if self._chatting:
                 chat_log.append_info("请等待当前回复完成后再压缩...")
                 return
-            # 在后台触发压缩
             asyncio.create_task(self._do_compact(chat_log))
+            return
+        if user_text == "/remember":
+            if self._chatting:
+                chat_log.append_info("请等待当前回复完成...")
+                return
+            if self._memory_manager:
+                recent = self._conv.messages[-4:]
+                asyncio.create_task(self._memory_manager.update_async(recent))
+                chat_log.append_info("记忆更新已触发（异步执行）")
+            else:
+                chat_log.append_info("记忆系统未启用")
+            return
+        if user_text == "/resume":
+            if self._chatting:
+                chat_log.append_info("请等待当前任务完成...")
+                return
+            asyncio.create_task(self._do_resume_list(chat_log))
+            return
+        if user_text.startswith("/resume "):
+            # /resume <session_id> 直接恢复
+            if self._chatting:
+                chat_log.append_info("请等待当前任务完成...")
+                return
+            sid = user_text[len("/resume "):].strip()
+            asyncio.create_task(self._do_resume_restore(chat_log, sid))
             return
 
         # 未知斜杠命令
         if user_text.startswith("/"):
             chat_log.append_info(
-                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /tools /clear"
+                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /resume /remember /tools /clear"
             )
             return
 
@@ -510,6 +570,111 @@ class AlinCodeApp(App):
         except Exception as exc:
             ev = CompactEvent(phase=CompactPhase.AFTER_AUTO, before=0, after=0, err=exc)
             chat_log.append_notice(format_compact_notice(ev))
+
+    async def _do_resume_list(self, chat_log: ChatLog) -> None:
+        """后台执行 /resume：扫描并展示历史会话列表。"""
+        from Alincode.session.list import list_sessions
+        sessions_dir = os.path.join(self.workspace, ".Alincode", "sessions")
+        if not os.path.isdir(sessions_dir):
+            chat_log.append_info("没有找到会话存档目录。")
+            return
+        sessions = list_sessions(sessions_dir)
+        if not sessions:
+            chat_log.append_info("没有找到可恢复的历史会话。")
+            return
+        chat_log.write("")
+        chat_log.write("[bold #5f87ff]会话列表 (输入 /resume <编号> 恢复):[/]")
+        for i, s in enumerate(sessions, 1):
+            delta = _fmt_time_ago(s.modified_at)
+            chat_log.write(
+                f"  [bold]#{i}[/] {s.title[:40]}  "
+                f"[dim]{delta} | {s.model} | {_fmt_size(s.size)}[/]"
+            )
+            chat_log.write(f"    [dim]ID: {s.id}[/]")
+        chat_log.write("")
+
+    async def _do_resume_restore(self, chat_log: ChatLog, session_id: str) -> None:
+        """后台执行 /resume <id>：恢复指定会话。"""
+        import json
+        import time
+        from Alincode.session.load import load_session
+        from Alincode.session.writer import Writer
+        from Alincode.compact.state import open_session_context
+        from Alincode.compact import estimate_tokens, SUMMARY_RESERVE, AUTO_SAFETY_MARGIN
+
+        sessions_dir = os.path.join(self.workspace, ".Alincode", "sessions")
+        session_dir = os.path.join(sessions_dir, session_id)
+        if not os.path.isdir(session_dir):
+            chat_log.append_info(f"会话 {session_id} 不存在。")
+            return
+
+        try:
+            msgs = load_session(session_dir)
+        except Exception as e:
+            chat_log.append_info(f"加载会话失败: {e}")
+            return
+
+        # 时间跨度检查：从 JSONL 最后一条消息读取 ts
+        jsonl_path = os.path.join(session_dir, "conversation.jsonl")
+        last_ts = 0
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            d = json.loads(line)
+                            last_ts = d.get("ts", last_ts)
+                        except json.JSONDecodeError:
+                            pass
+        except Exception:
+            pass
+        if last_ts and time.time() - last_ts > 6 * 3600:
+            delta = _fmt_time_ago_short(int(time.time() - last_ts))
+            from Alincode.conversation import Message
+            msgs.append(Message(
+                role="user",
+                content=f"[系统提示] 本会话已暂停 {delta}。部分上下文可能已过时，如需最新信息请重新读取相关文件。",
+            ))
+
+        # Token 超限检查 → 压缩
+        est = estimate_tokens(0, msgs, 0)
+        threshold = self.runtime.context_window - SUMMARY_RESERVE - AUTO_SAFETY_MARGIN
+        if est > threshold > 0:
+            chat_log.append_info(f"恢复后 token ({est}) 超限，自动压缩中...")
+            from Alincode.conversation import ConversationManager
+            temp_conv = ConversationManager.from_messages(msgs)
+            old_conv = self._conv
+            self._conv = temp_conv
+            try:
+                await self._do_compact(chat_log)
+                msgs = self._conv.messages
+            except Exception:
+                pass
+            finally:
+                self._conv = old_conv
+
+        # 重建 conversation
+        on_append = self._writer.append if self._writer else None
+        on_replace = self._on_conv_replace if self._writer else None
+        new_conv = ConversationManager.from_messages(
+            msgs, on_append=on_append, on_replace=on_replace,
+        )
+        self._conv = new_conv
+
+        # 更新 session context
+        new_ctx = open_session_context(self.workspace, session_id)
+        self.runtime.session = new_ctx
+
+        # 重新打开 writer
+        if self._writer:
+            self._writer.close()
+        self._writer = Writer.open_existing(session_dir)
+        # 更新回调
+        self._conv._on_append = self._writer.append
+        self._conv._on_replace = self._on_conv_replace
+
+        chat_log.append_notice(f"已恢复会话 {session_id}，共 {len(msgs)} 条消息")
 
     def _start_agent(self, chat_log: ChatLog) -> None:
         self._turn_cancel = asyncio.Event()
@@ -637,3 +802,34 @@ class AlinCodeApp(App):
             self._update_quick_bar()
             if self._refresh_timer:
                 self._refresh_timer.cancel()
+
+
+def _fmt_time_ago(dt) -> str:
+    import datetime as _dt
+    now = _dt.datetime.now()
+    delta = now - dt
+    if delta.days > 30:
+        return f"{delta.days // 30}月前"
+    if delta.days > 0:
+        return f"{delta.days}天前"
+    if delta.seconds > 3600:
+        return f"{delta.seconds // 3600}小时前"
+    if delta.seconds > 60:
+        return f"{delta.seconds // 60}分钟前"
+    return "刚刚"
+
+
+def _fmt_time_ago_short(secs: int) -> str:
+    if secs > 86400:
+        return f"{secs // 86400} 天"
+    if secs > 3600:
+        return f"{secs // 3600} 小时"
+    return f"{secs // 60} 分钟"
+
+
+def _fmt_size(size: int) -> str:
+    if size > 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f}MB"
+    if size > 1024:
+        return f"{size / 1024:.0f}KB"
+    return f"{size}B"

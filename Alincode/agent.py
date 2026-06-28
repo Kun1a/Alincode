@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator
+
+if TYPE_CHECKING:
+    from Alincode.memory import Manager as MemoryManager
 
 from Alincode.client import BaseProvider, PromptTooLongError, Request, System as SystemBlocks
 from Alincode.compact import (
@@ -81,6 +84,17 @@ class Event:
     compact: CompactEvent | None = None
 
 
+def _has_memory_signal(conv: ConversationManager) -> bool:
+    """检查最近用户消息是否包含显式记忆请求关键词。"""
+    from Alincode.conversation import ROLE_USER
+    keywords = ("记住", "记忆", "别忘", "remember", "memo")
+    msgs = conv.messages
+    for m in reversed(msgs):
+        if m.role == ROLE_USER:
+            return any(kw in m.content.lower() for kw in keywords)
+    return False
+
+
 def _args_preview(c: ToolCall) -> str:
     return c.input if len(c.input) <= 80 else c.input[:77] + "..."
 
@@ -101,6 +115,9 @@ class Agent:
         engine: PermissionEngine | None = None,
         *,
         runtime: SessionRuntime | None = None,
+        memory_manager: "MemoryManager | None" = None,
+        instruction_text: str = "",
+        memory_text: str = "",
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -108,7 +125,11 @@ class Agent:
         self._version = version
         self._engine = engine or PermissionEngine()
         self.runtime = runtime or SessionRuntime()
+        self._mem_mgr = memory_manager
+        self._instruction_text = instruction_text
+        self._memory_text = memory_text
         self._run_lock = asyncio.Lock()
+        self._turn_count = 0
 
     async def run(
         self,
@@ -132,7 +153,9 @@ class Agent:
         env = await gather_environment(
             cwd=None, version=self._version, model=self._model
         )
-        stable, env_block = build_system_prompt(env)
+        stable, env_block = build_system_prompt(
+            env, instructions=self._instruction_text, memory=self._memory_text,
+        )
 
         if mode == Mode.PLAN:
             defs = self._registry.read_only_definitions()
@@ -344,6 +367,16 @@ class Agent:
             if not tool_calls:
                 if preamble.strip():
                     conv.add_assistant(preamble)
+                # ── 记忆更新触发 ──────────────────
+                self._turn_count += 1
+                if self._mem_mgr is not None and (
+                    self._turn_count % 3 == 0
+                    or _has_memory_signal(conv)
+                ):
+                    recent = conv.messages[-4:]  # 最近一轮
+                    asyncio.create_task(
+                        self._mem_mgr.update_async(recent)
+                    )
                 yield Event(done=True)
                 return
 

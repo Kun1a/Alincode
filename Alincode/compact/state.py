@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import threading
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,30 +18,51 @@ logger = logging.getLogger(__name__)
 # ── 会话生命周期 ──────────────────────────────────────
 
 def _new_session_id() -> str:
-    """生成 <unix_ts>-<short_random> 格式的会话 id。"""
+    """生成 YYYYMMDD-HHMMSS-xxxx 格式的会话 id（防同秒碰撞）。"""
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     try:
-        hex_str = secrets.token_hex(4)
+        hex_str = secrets.token_hex(2)
     except Exception:
         import random
+        import time
         logger.warning("secrets.token_hex failed, falling back to random")
-        hex_str = random.Random(time.time()).randbytes(4).hex()
-    return f"{int(time.time())}-{hex_str}"
+        hex_str = random.Random(time.time()).randbytes(2).hex()
+    return f"{ts}-{hex_str}"
+
+
+def parse_session_time(session_id: str) -> datetime:
+    """从会话 ID 前 15 位解析时间戳，供清理和排序使用。"""
+    ts_str = session_id[:15]
+    return datetime.strptime(ts_str, "%Y%m%d-%H%M%S")
 
 
 @dataclass
 class SessionContext:
     """会话生命周期信息。"""
     session_id: str
+    session_dir: str
     spill_dir: str
 
 
 def new_session_context(workspace: str) -> SessionContext:
     """创建会话上下文。落盘目录在首次 spill 时懒创建。"""
     session_id = _new_session_id()
-    spill_dir = str(
-        Path(workspace) / ".Alincode" / "sessions" / session_id / "tool-results"
+    ws_path = Path(workspace)
+    session_dir = str(ws_path / ".Alincode" / "sessions" / session_id)
+    spill_dir = os.path.join(session_dir, "tool-results")
+    return SessionContext(
+        session_id=session_id, session_dir=session_dir, spill_dir=spill_dir,
     )
-    return SessionContext(session_id=session_id, spill_dir=spill_dir)
+
+
+def open_session_context(workspace: str, session_id: str) -> SessionContext:
+    """打开已有会话目录（恢复场景）。不创建目录。"""
+    ws_path = Path(workspace)
+    session_dir = str(ws_path / ".Alincode" / "sessions" / session_id)
+    spill_dir = os.path.join(session_dir, "tool-results")
+    return SessionContext(
+        session_id=session_id, session_dir=session_dir, spill_dir=spill_dir,
+    )
 
 
 # ── 替换决策账本 ──────────────────────────────────────

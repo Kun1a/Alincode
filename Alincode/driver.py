@@ -7,6 +7,9 @@ import logging
 import sys
 from pathlib import Path
 
+import datetime as _dt
+import os
+
 from Alincode.config import ConfigLoader, effective_context_window
 from Alincode.client import create_provider
 from Alincode.compact.state import (
@@ -15,7 +18,10 @@ from Alincode.compact.state import (
     AutoCompactTrackingState,
     new_session_context,
 )
+from Alincode.instructions import Loader as InstructionsLoader
+from Alincode.memory import Manager as MemoryManager
 from Alincode.runtime import SessionRuntime
+from Alincode.session import Writer as SessionWriter, clean_expired
 from Alincode.tools import new_default_registry
 from Alincode.permission.engine import new_engine
 from Alincode.mcp import load_from_dict as mcp_from_dict, new_manager as mcp_new_manager
@@ -74,8 +80,22 @@ async def _amain(config_path: str | None = None) -> None:
     if err:
         print(f"权限引擎降级: {err}", file=sys.stderr)
 
-    # ── 会话运行时 ─────────────────────────────────
+    # ── 项目指令加载 ──────────────────────────────
     workspace = str(Path.cwd().resolve())
+    user_home = os.path.expanduser("~")
+    loader = InstructionsLoader(project_root=workspace, user_home=user_home)
+    instruction_text = loader.load()
+
+    # ── 记忆初始化 ────────────────────────────────
+    mem_mgr = MemoryManager(
+        project_dir=os.path.join(workspace, ".Alincode", "memory"),
+        user_dir=os.path.join(user_home, ".Alincode", "memory"),
+        provider=provider,
+        model=provider_cfg.model,
+    )
+    memory_text = mem_mgr.load_index()
+
+    # ── 会话运行时 ─────────────────────────────────
     runtime = SessionRuntime(
         replacement=ContentReplacementState(),
         recovery=RecoveryState(),
@@ -84,13 +104,28 @@ async def _amain(config_path: str | None = None) -> None:
         context_window=effective_context_window(provider_cfg),
     )
 
+    # ── 会话写入器 ─────────────────────────────────
+    writer = SessionWriter(runtime.session.session_dir)
+
+    # ── 后台清理过期会话 ────────────────────────────
+    sessions_dir = os.path.join(workspace, ".Alincode", "sessions")
+    asyncio.create_task(
+        asyncio.to_thread(clean_expired, sessions_dir, _dt.timedelta(days=30))
+    )
+
     app = AlinCodeApp(
         provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
         runtime=runtime,
+        instruction_text=instruction_text,
+        memory_text=memory_text,
+        writer=writer,
+        memory_manager=mem_mgr,
+        workspace=workspace,
     )
     try:
         await app.run_async()
     finally:
+        writer.close()
         await mcp_mgr.close()
 
 
