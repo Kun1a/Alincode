@@ -22,6 +22,7 @@ from Alincode.instructions import Loader as InstructionsLoader
 from Alincode.memory import Manager as MemoryManager
 from Alincode.runtime import SessionRuntime
 from Alincode.session import Writer as SessionWriter, clean_expired
+from Alincode.skills.catalog import Catalog
 from Alincode.tools import new_default_registry
 from Alincode.permission.engine import new_engine
 from Alincode.mcp import load_from_dict as mcp_from_dict, new_manager as mcp_new_manager
@@ -113,6 +114,27 @@ async def _amain(config_path: str | None = None) -> None:
         asyncio.to_thread(clean_expired, sessions_dir, _dt.timedelta(days=30))
     )
 
+    # ── Skills 加载 ────────────────────────────────
+    catalog = Catalog.load(workspace)
+    # fail-fast 工具白名单检查
+    issues = catalog.validate_tools(registry)
+    for iss in issues:
+        print(
+            f"[skills] skill {iss.skill_name}: allowed_tool "
+            f"\"{iss.tool_name}\" not registered, skipped",
+            file=sys.stderr,
+        )
+    for iss in issues:
+        # 从 catalog 中移除有问题的 skill
+        catalog._by_name.pop(iss.skill_name, None)
+        if iss.skill_name in catalog._order:
+            catalog._order.remove(iss.skill_name)
+
+    # 注册 LoadSkill 工具
+    from Alincode.skills.load_skill import LoadSkillTool
+    load_skill = LoadSkillTool(catalog, runtime.active_skills, registry)
+    registry.register(load_skill)
+
     app = AlinCodeApp(
         provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
         runtime=runtime,
@@ -121,6 +143,7 @@ async def _amain(config_path: str | None = None) -> None:
         writer=writer,
         memory_manager=mem_mgr,
         workspace=workspace,
+        catalog=catalog,
     )
     try:
         await app.run_async()

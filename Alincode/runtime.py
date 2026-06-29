@@ -12,6 +12,7 @@ from Alincode.compact.state import (
     SessionContext,
     new_session_context,
 )
+from Alincode.skills.active import ActiveSkills
 
 
 @dataclass
@@ -27,6 +28,7 @@ class SessionRuntime:
     context_window: int = 200000
     usage_anchor: int = 0       # 上一次主对话路径 stream 真实 usage 之和
     anchor_msg_len: int = 0     # anchor 当时 conv.length()
+    active_skills: ActiveSkills = field(default_factory=ActiveSkills)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 

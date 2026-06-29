@@ -8,9 +8,9 @@ MEMORY_UPDATE_PROMPT = """你正在为编程助手的长期记忆做更新。请
 - project_knowledge: 项目知识（技术栈、架构、约定）
 - reference_material: 参考资料（外部链接、文档引用）
 
-记忆分两级存放：
-- project: 与当前项目相关的信息（项目知识、参考资料）
-- user: 跨项目通用的信息（用户偏好、纠正反馈）
+记忆分两级存放（优先 project）：
+- project: 优先存放所有信息到此（项目目录 .Alincode/memory/），包括项目知识、参考资料
+- user: 仅当信息明确跨项目通用时才放用户目录（~/.Alincode/memory/），如用户偏好、纠正反馈
 
 返回 JSON 数组，每个元素描述一个操作。如果无需更新，返回空数组 []。
 

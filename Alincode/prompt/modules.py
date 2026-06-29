@@ -63,7 +63,7 @@ FIXED_MODULES = [
 
 OPTIONAL_MODULES = [
     {"priority": 10, "key": "custom_instructions", "content": ""},
-    {"priority": 11, "key": "active_skills", "content": ""},
+    {"priority": 11, "key": "skills_catalog", "content": ""},
     {"priority": 12, "key": "long_term_memory", "content": ""},
 ]
 

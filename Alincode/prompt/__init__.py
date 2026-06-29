@@ -33,6 +33,7 @@ def assemble_system(
     optional: list[Module] | None = None,
     instructions: str = "",
     memory: str = "",
+    skills_catalog: str = "",
 ) -> str:
     """将固定和可选模块按优先级排序，以空行分隔拼装（AC1）。
 
@@ -41,6 +42,7 @@ def assemble_system(
         optional: 可选模块列表，None 时使用默认 OPTIONAL_MODULES
         instructions: 非空时填入 custom_instructions 槽位
         memory: 非空时填入 long_term_memory 槽位
+        skills_catalog: 非空时填入 skills_catalog 槽位
 
     Returns:
         完整的系统提示文本（稳定块）
@@ -50,10 +52,11 @@ def assemble_system(
     if optional is None:
         optional = _to_modules(OPTIONAL_MODULES)
 
-    # 用传入值填充可选模块
     for m in optional:
         if m.key == "custom_instructions" and instructions:
             m.content = instructions
+        elif m.key == "skills_catalog" and skills_catalog:
+            m.content = skills_catalog
         elif m.key == "long_term_memory" and memory:
             m.content = memory
 
@@ -65,17 +68,24 @@ def build_system_prompt(
     env: Environment | None = None,
     instructions: str = "",
     memory: str = "",
+    skills_catalog: str = "",
 ) -> tuple[str, str]:
-    """构建完整系统提示，返回 (stable_block, environment_block)。
-
-    - stable_block：模块化系统提示，可缓存（N1/AC5）
-    - environment_block：动态环境信息，不缓存
-    - instructions：非空时填入 custom_instructions 槽位
-    - memory：非空时填入 long_term_memory 槽位
-    """
-    stable = assemble_system(instructions=instructions, memory=memory)
+    """构建完整系统提示，返回 (stable_block, environment_block)。"""
+    stable = assemble_system(
+        instructions=instructions, memory=memory, skills_catalog=skills_catalog,
+    )
     env_block = env.render() if env else ""
     return stable, env_block
+
+
+def render_active_skills_block(entries: list) -> str:
+    """渲染已激活 Skill 的 env context 块。"""
+    if not entries:
+        return ""
+    parts = ["## Active Skills"]
+    for e in entries:
+        parts.append(f"\n### Skill: {e.name}\n\n{e.body}")
+    return "\n".join(parts)
 
 
 __all__ = [

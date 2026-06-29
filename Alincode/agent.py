@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator
 
 if TYPE_CHECKING:
     from Alincode.memory import Manager as MemoryManager
+    from Alincode.skills.catalog import Catalog
 
 from Alincode.client import BaseProvider, PromptTooLongError, Request, System as SystemBlocks
 from Alincode.compact import (
@@ -34,8 +36,9 @@ from Alincode.conversation import (
 )
 from Alincode.permission import Verdict, Outcome, ApprovalRequest, Mode
 from Alincode.permission.engine import PermissionEngine
-from Alincode.prompt import build_system_prompt, gather_environment, plan_reminder
+from Alincode.prompt import build_system_prompt, gather_environment, plan_reminder, render_active_skills_block
 from Alincode.runtime import SessionRuntime
+from Alincode.skills.adapter import catalog_to_prompt_items, active_to_prompt_entries
 from Alincode.tools import Registry, Result, DEFAULT_TIMEOUT
 
 MAX_ITERATIONS = 25
@@ -118,6 +121,7 @@ class Agent:
         memory_manager: "MemoryManager | None" = None,
         instruction_text: str = "",
         memory_text: str = "",
+        skills_catalog: "Catalog | None" = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -128,6 +132,7 @@ class Agent:
         self._mem_mgr = memory_manager
         self._instruction_text = instruction_text
         self._memory_text = memory_text
+        self._catalog = skills_catalog
         self._run_lock = asyncio.Lock()
         self._turn_count = 0
 
@@ -153,9 +158,16 @@ class Agent:
         env = await gather_environment(
             cwd=None, version=self._version, model=self._model
         )
+        # Active skills（每轮不变——在 env 中动态渲染）
+        active_entries = active_to_prompt_entries(self.runtime.active_skills)
+        active_text = render_active_skills_block(active_entries)
+
         stable, env_block = build_system_prompt(
             env, instructions=self._instruction_text, memory=self._memory_text,
+            skills_catalog="",  # 每轮迭代时填充
         )
+        if active_text:
+            env_block = env_block + "\n\n" + active_text if env_block else active_text
 
         if mode == Mode.PLAN:
             defs = self._registry.read_only_definitions()
@@ -222,9 +234,35 @@ class Agent:
                 conv.ensure_assistant_tail(str(mc_err))
                 return
 
+            # ── 每轮重扫 Skill 目录（mtime 缓存热加载） ──
+            skills_cat_text = ""
+            if self._catalog:
+                self._catalog.reload_if_changed(Path.cwd())
+                items = catalog_to_prompt_items(self._catalog)
+                if items:
+                    lines = ["## Available Skills", ""]
+                    for pi in items:
+                        lines.append(f"- **{pi.name}**: {pi.description}")
+                    lines.append("")
+                    lines.append(
+                        'Call the LoadSkill tool with {{"name": "<skill_name>"}} '
+                        "to activate a skill's full SOP before executing it."
+                    )
+                    skills_cat_text = "\n".join(lines)
+
+            iter_stable, iter_env = build_system_prompt(
+                env, instructions=self._instruction_text, memory=self._memory_text,
+                skills_catalog=skills_cat_text,
+            )
+            # 拼接 active skills 到 env
+            active_entries = active_to_prompt_entries(self.runtime.active_skills)
+            active_text = render_active_skills_block(active_entries)
+            if active_text:
+                iter_env = iter_env + "\n\n" + active_text if iter_env else active_text
+
             reminder = plan_reminder(iteration) if mode == Mode.PLAN else ""
             req = Request(
-                system=SystemBlocks(stable=stable, environment=env_block),
+                system=SystemBlocks(stable=iter_stable, environment=iter_env),
                 messages=conv.messages,
                 model=self._model,
                 tools=defs,
@@ -314,9 +352,9 @@ class Agent:
                     conv.ensure_assistant_tail("紧急压缩后仍超窗口")
                     return
 
-                # 重试
+                # 重试——用最新的 prompt 块
                 retry_req = Request(
-                    system=SystemBlocks(stable=stable, environment=env_block),
+                    system=SystemBlocks(stable=iter_stable, environment=iter_env),
                     messages=conv.messages,
                     model=self._model,
                     tools=defs,

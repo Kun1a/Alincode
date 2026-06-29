@@ -27,6 +27,7 @@ from Alincode.tools import Registry
 
 if TYPE_CHECKING:
     from Alincode.memory import Manager as MemoryManager
+    from Alincode.skills.catalog import Catalog
 
 
 # ── Streaming text widget ─────────────────────────────────
@@ -197,7 +198,8 @@ class AlinCodeApp(App):
                  memory_text: str = "",
                  writer: SessionWriter | None = None,
                  memory_manager: "MemoryManager | None" = None,
-                 workspace: str = "") -> None:
+                 workspace: str = "",
+                 catalog: "Catalog | None" = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
@@ -226,6 +228,7 @@ class AlinCodeApp(App):
             memory_manager=memory_manager,
             instruction_text=instruction_text,
             memory_text=memory_text,
+            skills_catalog=catalog,
         )
         self._chatting = False
         self._mode: Mode = Mode.DEFAULT
