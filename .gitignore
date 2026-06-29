@@ -18,3 +18,7 @@ venv/
 
 # 测试缓存
 .pytest_cache/
+
+CLAUDE.md
+
+.gitignore
