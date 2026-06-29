@@ -1,7 +1,11 @@
-"""配置加载：三层 YAML 文件（本地 > 项目 > 用户）+ 降级安全默认（F4/N5/AC6）。"""
+"""配置加载：三层 YAML 文件（本地 > 项目 > 用户）+ 降级安全默认（F4/N5/AC6）。
+
+升级：支持 =/~ /! 语法前缀，解析失败 stderr 报告并跳过出错规则。
+"""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 import yaml
 
@@ -19,6 +23,7 @@ def load_rules(project_root: str) -> list[RuleRecord]:
 
     返回规则列表，本地层在前、项目层在中、用户层在后。
     加载失败降级：不抛异常、不中断（N5）。
+    规则解析失败：stderr 报错后跳过该条，其余正常加载（F4）。
     """
     user_dir = _user_config_dir()
     project_dir = Path(project_root) / PROJECT_DIR
@@ -38,13 +43,13 @@ def load_rules(project_root: str) -> list[RuleRecord]:
             if data:
                 perms = data.get("permissions", {})
                 for entry in perms.get("deny", []):
-                    tool, pattern = _parse_entry(entry)
-                    if tool:
-                        all_rules.append(RuleRecord(tool=tool, pattern=pattern, verdict="deny", source=source_name))
+                    rule = _parse_entry(entry, "deny", source_name)
+                    if rule:
+                        all_rules.append(rule)
                 for entry in perms.get("allow", []):
-                    tool, pattern = _parse_entry(entry)
-                    if tool:
-                        all_rules.append(RuleRecord(tool=tool, pattern=pattern, verdict="allow", source=source_name))
+                    rule = _parse_entry(entry, "allow", source_name)
+                    if rule:
+                        all_rules.append(rule)
         except Exception:
             # 格式非法 → 跳过该文件（N5）
             continue
@@ -142,10 +147,40 @@ def _load_yaml(path: str) -> dict | None:
         return yaml.safe_load(f) or {}
 
 
-def _parse_entry(entry: str) -> tuple[str, str]:
-    """解析规则条目如 "Bash(git *)" → ("Bash", "git *")。"""
+def _parse_entry(entry: str, verdict: str = "", source: str = "") -> RuleRecord | None:
+    """解析规则条目如 \"Bash(git *)\" → RuleRecord。
+
+    支持前缀语法（F2）：
+      Bash(=value)  精确（整串相等）
+      Bash(!inner)  反向
+      Bash(~regex)  正则
+      Bash(value)   无前缀 → glob（向后兼容）
+
+    解析失败时 stderr 报警并返回 None（F4）。
+    """
     import re
     m = re.match(r"^(\w+)\((.+)\)$", entry.strip())
-    if m:
-        return m.group(1), m.group(2).strip()
-    return "", ""
+    if not m:
+        print(f'rule {entry!r} parse failed: invalid format, expected Tool(pattern)', file=sys.stderr)
+        return None
+
+    tool = m.group(1)
+    pattern = m.group(2).strip()
+
+    matcher = None
+    raw = entry.strip()
+
+    if pattern:  # 有 pattern 时尝试编译 matcher
+        from Alincode.permission.matcher import compile_matcher as _compile
+        is_cmd = (tool == "Bash")
+        try:
+            matcher = _compile(pattern, is_command=is_cmd)
+        except ValueError as e:
+            print(f'rule {entry!r} parse failed: {e}', file=sys.stderr)
+            # 正则编译失败 → 跳过该条规则，不回退
+            return None
+
+    return RuleRecord(
+        tool=tool, pattern=pattern, verdict=verdict, source=source,
+        raw=raw, matcher=matcher,
+    )

@@ -135,6 +135,10 @@ async def _amain(config_path: str | None = None) -> None:
     load_skill = LoadSkillTool(catalog, runtime.active_skills, registry)
     registry.register(load_skill)
 
+    # ── Hook 加载 ────────────────────────────────────
+    from Alincode.hook import load_from_dict, Event as HookEvent
+    hook_engine = load_from_dict(app_cfg.hooks)
+
     app = AlinCodeApp(
         provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
         runtime=runtime,
@@ -144,10 +148,18 @@ async def _amain(config_path: str | None = None) -> None:
         memory_manager=mem_mgr,
         workspace=workspace,
         catalog=catalog,
+        hook_engine=hook_engine,
     )
     try:
         await app.run_async()
     finally:
+        # ── Hook: SessionEnd 兜底 ──
+        await hook_engine.dispatch(HookEvent.SESSION_END, {
+            "event": "session_end",
+            "session_id": runtime.session.session_id,
+            "cwd": workspace,
+            "mode": "default",
+        })
         writer.close()
         await mcp_mgr.close()
 

@@ -1,4 +1,7 @@
-"""规则匹配：精确与 glob 匹配 + 友好名映射（F3/AC3/AC4）。"""
+"""规则匹配：精确与 glob 匹配 + 友好名映射（F3/AC3/AC4）。
+
+升级：支持 Matcher（Exact/Glob/Regex/Not）做权限匹配，同时保持向后兼容。
+"""
 
 from __future__ import annotations
 
@@ -45,7 +48,7 @@ def match_rule(tool_name: str, args_str: str, rules: list[RuleRecord]) -> RuleRe
 
     匹配规则：
     1. 提取参数的"主匹配值"（文件类=path，bash=command）
-    2. 逐条规则用 fnmatch 做 glob 匹配
+    2. 逐条规则优先用 matcher（Matcher 实例），否则 fallback 到 pattern fnmatch
     3. deny 规则优先于 allow（同层）
     """
     extract = _extract_match_value(tool_name, args_str)
@@ -59,7 +62,7 @@ def match_rule(tool_name: str, args_str: str, rules: list[RuleRecord]) -> RuleRe
         r_tool_name, _ = friendly_to_internal(rule.tool) or (rule.tool, None)
         if r_tool_name != tool_name:
             continue
-        if not _fnmatch(extract, rule.pattern):
+        if not _match_rule_value(extract, rule):
             continue
         if rule.verdict == "deny":
             if deny_hit is None:
@@ -70,6 +73,18 @@ def match_rule(tool_name: str, args_str: str, rules: list[RuleRecord]) -> RuleRe
 
     # deny 优先
     return deny_hit or allow_hit
+
+
+def _match_rule_value(value: str, rule: RuleRecord) -> bool:
+    """单条规则的匹配值判定：优先用 matcher，回退到 pattern fnmatch。"""
+    if rule.matcher is not None:
+        # matcher is a Matcher Protocol instance
+        return rule.matcher.match(value)  # type: ignore[union-attr]
+    # 向后兼容：无 matcher 时用 pattern 做 fnmatch
+    if rule.pattern:
+        return fnmatch.fnmatch(value, rule.pattern)
+    # pattern 为空 → 全匹配（该工具所有参数都命中）
+    return True
 
 
 def _extract_match_value(tool_name: str, args_str: str) -> str | None:

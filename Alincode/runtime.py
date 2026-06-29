@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from Alincode.hook.engine import Engine as HookEngine
 
 from Alincode.compact.state import (
     ContentReplacementState,
@@ -30,6 +35,32 @@ class SessionRuntime:
     anchor_msg_len: int = 0     # anchor 当时 conv.length()
     active_skills: ActiveSkills = field(default_factory=ActiveSkills)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    # ── Hook 集成 ──────────────────────────────────────
+    pending_reminders: list[str] = field(default_factory=list)
+    hook_engine: "HookEngine | None" = None
+    _reminder_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def append_reminders(self, prompts: list[str]) -> None:
+        """追加 reminder 到待注入队列（线程安全）。"""
+        if not prompts:
+            return
+        with self._reminder_lock:
+            self.pending_reminders.extend(prompts)
+
+    def take_reminders(self) -> list[str]:
+        """取出并清空所有 pending reminders。"""
+        with self._reminder_lock:
+            taken = self.pending_reminders
+            self.pending_reminders = []
+            return taken
+
+    async def reset_for_new_session(self) -> None:
+        """清空 only_once 集合（/clear 或 /resume 时调用）。"""
+        with self._reminder_lock:
+            self.pending_reminders.clear()
+        if self.hook_engine is not None:
+            await self.hook_engine.reset_for_new_session()
 
 
 def new_default_runtime(workspace: str = ".") -> SessionRuntime:

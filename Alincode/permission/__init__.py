@@ -52,9 +52,12 @@ class ToolCategory(Enum):
 class RuleRecord:
     """一条权限规则。"""
     tool: str              # 友好名或内部名
-    pattern: str           # 参数/路径匹配模式
+    pattern: str           # 参数/路径匹配模式（向后兼容）
     verdict: str           # "allow" | "deny"
     source: str = ""       # 来自哪个文件
+    raw: str = ""          # 原始模式串，供错误日志与调试
+    # 升级后由 compile_matcher 构造，None 表示"该工具全匹配"
+    matcher: object | None = None
 
 
 # ── 模式枚举 ──────────────────────────────────────────

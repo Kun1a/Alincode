@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from Alincode.agent import Agent, CompactPhase, CompactEvent, Phase as AgentPhase
 from Alincode.client import BaseProvider
 from Alincode.conversation import ConversationManager
+from Alincode.hook.event import Event as HookEvent
 from Alincode.permission import Mode, ApprovalRequest, Outcome
 from Alincode.permission.engine import PermissionEngine
 from Alincode.prompts import SYSTEM_PROMPT, EXECUTE_DIRECTIVE
@@ -28,6 +29,7 @@ from Alincode.tools import Registry
 if TYPE_CHECKING:
     from Alincode.memory import Manager as MemoryManager
     from Alincode.skills.catalog import Catalog
+    from Alincode.hook.engine import Engine as HookEngine
 
 
 # ── Streaming text widget ─────────────────────────────────
@@ -199,7 +201,8 @@ class AlinCodeApp(App):
                  writer: SessionWriter | None = None,
                  memory_manager: "MemoryManager | None" = None,
                  workspace: str = "",
-                 catalog: "Catalog | None" = None) -> None:
+                 catalog: "Catalog | None" = None,
+                 hook_engine: "HookEngine | None" = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
@@ -213,6 +216,11 @@ class AlinCodeApp(App):
         self._memory_text = memory_text
         self._writer = writer
         self._memory_manager = memory_manager
+        self.hook_engine = hook_engine
+
+        # 注入 hook_engine 到 runtime
+        if hook_engine:
+            self.runtime.hook_engine = hook_engine
 
         # Conversation 回调 → Writer
         on_append = writer.append if writer else None
@@ -229,6 +237,7 @@ class AlinCodeApp(App):
             instruction_text=instruction_text,
             memory_text=memory_text,
             skills_catalog=catalog,
+            hook_engine=hook_engine,
         )
         self._chatting = False
         self._mode: Mode = Mode.DEFAULT
@@ -248,6 +257,38 @@ class AlinCodeApp(App):
         if self._writer:
             self._writer.write_compact_marker()
             self._writer.append_all(msgs)
+
+    # ── Hook helpers ────────────────────────────────────
+
+    def _base_payload(self) -> dict:
+        return {
+            "session_id": self.runtime.session.session_id,
+            "cwd": str(self.workspace),
+            "mode": self._mode.value,
+        }
+
+    async def _dispatch_session_start(self) -> None:
+        """SessionStart: on_mount 末尾派发。"""
+        if self.hook_engine is None:
+            return
+        payload = self._base_payload() | {"event": HookEvent.SESSION_START.value}
+        result = await self.hook_engine.dispatch(HookEvent.SESSION_START, payload)
+        self.runtime.append_reminders(result.injected_prompts)
+
+    async def _dispatch_session_end(self) -> None:
+        """SessionEnd: /clear /resume /exit 时派发。"""
+        if self.hook_engine is None:
+            return
+        payload = self._base_payload() | {"event": HookEvent.SESSION_END.value}
+        await self.hook_engine.dispatch(HookEvent.SESSION_END, payload)
+
+    async def _dispatch_session_resume(self) -> None:
+        """SessionResume: /resume 完成后派发。"""
+        if self.hook_engine is None:
+            return
+        payload = self._base_payload() | {"event": HookEvent.SESSION_RESUME.value}
+        result = await self.hook_engine.dispatch(HookEvent.SESSION_RESUME, payload)
+        self.runtime.append_reminders(result.injected_prompts)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -292,6 +333,8 @@ class AlinCodeApp(App):
             )
         self._update_quick_bar()
         self.query_one("#message-input", TextArea).focus()
+        # ── Hook: SessionStart ──
+        asyncio.create_task(self._dispatch_session_start())
 
     def _stream_widget(self) -> StreamText:
         return self.query_one("#stream-text", StreamText)
@@ -485,12 +528,16 @@ class AlinCodeApp(App):
         chat_log = self.query_one("#chat-log", ChatLog)
 
         if user_text == "/exit":
+            asyncio.create_task(self._dispatch_session_end())
             self.exit()
             return
         if user_text == "/clear":
+            asyncio.create_task(self._dispatch_session_end())
+            await self.runtime.reset_for_new_session()
             self._conv.clear()
             self._conv.add_system(SYSTEM_PROMPT)
             chat_log.append_info("对话历史已清空")
+            asyncio.create_task(self._dispatch_session_start())
             return
         if user_text == "/tools":
             defs = self._tool_registry.definitions()
@@ -544,17 +591,37 @@ class AlinCodeApp(App):
             sid = user_text[len("/resume "):].strip()
             asyncio.create_task(self._do_resume_restore(chat_log, sid))
             return
+        if user_text == "/hooks":
+            if self.hook_engine is None:
+                chat_log.append_info("No hooks loaded.")
+            else:
+                self._show_hooks(chat_log)
+            return
 
         # 未知斜杠命令
         if user_text.startswith("/"):
             chat_log.append_info(
-                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /resume /remember /tools /clear"
+                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /resume /remember /tools /clear /hooks"
             )
             return
 
         if self._chatting:
             chat_log.append_info("请等待当前回复完成...")
             return
+
+        # ── Hook: UserPromptSubmit ──
+        if self.hook_engine is not None:
+            payload = self._base_payload() | {
+                "event": HookEvent.USER_PROMPT_SUBMIT.value,
+                "prompt": user_text,
+            }
+            result = await self.hook_engine.dispatch(HookEvent.USER_PROMPT_SUBMIT, payload)
+            if result.blocked:
+                chat_log.append_info(
+                    f"[hook {result.blocking_hook_id}] {result.reason}"
+                )
+                return
+            self.runtime.append_reminders(result.injected_prompts)
 
         chat_log.append_user(user_text)
         self._conv.add_user(user_text)
@@ -678,6 +745,11 @@ class AlinCodeApp(App):
         self._conv._on_replace = self._on_conv_replace
 
         chat_log.append_notice(f"已恢复会话 {session_id}，共 {len(msgs)} 条消息")
+
+        # ── Hook: SessionResume ──
+        await self._dispatch_session_end()
+        await self.runtime.reset_for_new_session()
+        asyncio.create_task(self._dispatch_session_resume())
 
     def _start_agent(self, chat_log: ChatLog) -> None:
         self._turn_cancel = asyncio.Event()
@@ -805,6 +877,42 @@ class AlinCodeApp(App):
             self._update_quick_bar()
             if self._refresh_timer:
                 self._refresh_timer.cancel()
+
+    def _show_hooks(self, chat_log: ChatLog) -> None:
+        """显示已加载的 hook 列表，按 event 分组。"""
+        if self.hook_engine is None:
+            chat_log.append_info("No hooks loaded.")
+            return
+        rules = self.hook_engine.rules
+        sources = self.hook_engine.sources
+        if not rules:
+            chat_log.append_info("No hooks loaded.")
+            return
+
+        # 按 event 分组（保持声明顺序）
+        from collections import OrderedDict
+        groups: dict[str, list] = OrderedDict()
+        for r in rules:
+            groups.setdefault(r.event.value, []).append(r)
+
+        chat_log.write("")
+        for event_name, event_rules in groups.items():
+            chat_log.write(f"[bold #ffaa00]{event_name}[/]")
+            for r in event_rules:
+                flags = []
+                if r.only_once:
+                    flags.append("[once]")
+                if r.async_mode:
+                    flags.append("[async]")
+                flag_str = " ".join(flags) if flags else ""
+                chat_log.write(
+                    f"  [bold]{r.id}[/]  {r.event.value}  "
+                    f"[dim]{r.action.type.value}[/]  {flag_str}"
+                )
+            chat_log.write("")
+        if sources:
+            chat_log.write(f"[dim]Loaded from: {', '.join(sources)}[/]")
+        chat_log.write("")
 
 
 def _fmt_time_ago(dt) -> str:

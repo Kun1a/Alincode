@@ -40,9 +40,10 @@ def effective_context_window(p: ProviderConfig) -> int:
 
 @dataclass
 class AppConfig:
-    """应用级配置：providers 列表 + MCP servers。"""
+    """应用级配置：providers 列表 + MCP servers + Hooks。"""
     providers: list[ProviderConfig] = field(default_factory=list)
     mcp_servers: dict = field(default_factory=dict)  # raw dict，由 mcp 层进一步校验
+    hooks: list[dict] = field(default_factory=list)   # raw list，由 hook 层进一步校验
 
 
 # ── 加载器 ──────────────────────────────────────────
@@ -78,7 +79,12 @@ class ConfigLoader:
         elif not isinstance(mcp_servers, dict):
             mcp_servers = {}
 
-        return AppConfig(providers=providers, mcp_servers=mcp_servers)
+        hooks_raw = data.get("hooks")
+        hooks: list[dict] = []
+        if isinstance(hooks_raw, list):
+            hooks = hooks_raw
+
+        return AppConfig(providers=providers, mcp_servers=mcp_servers, hooks=hooks)
 
     @staticmethod
     def _parse_providers(data: dict) -> list[ProviderConfig]:

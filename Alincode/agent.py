@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, AsyncIterator
 if TYPE_CHECKING:
     from Alincode.memory import Manager as MemoryManager
     from Alincode.skills.catalog import Catalog
+    from Alincode.hook.engine import Engine as HookEngine
 
 from Alincode.client import BaseProvider, PromptTooLongError, Request, System as SystemBlocks
 from Alincode.compact import (
@@ -34,6 +35,7 @@ from Alincode.conversation import (
     NOTICE_CANCELLED,
     NOTICE_PROVIDER_ERROR,
 )
+from Alincode.hook.event import Event as HookEvent
 from Alincode.permission import Verdict, Outcome, ApprovalRequest, Mode
 from Alincode.permission.engine import PermissionEngine
 from Alincode.prompt import build_system_prompt, gather_environment, plan_reminder, render_active_skills_block
@@ -122,6 +124,7 @@ class Agent:
         instruction_text: str = "",
         memory_text: str = "",
         skills_catalog: "Catalog | None" = None,
+        hook_engine: "HookEngine | None" = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -133,8 +136,27 @@ class Agent:
         self._instruction_text = instruction_text
         self._memory_text = memory_text
         self._catalog = skills_catalog
+        self._hook_engine = hook_engine
         self._run_lock = asyncio.Lock()
         self._turn_count = 0
+
+    async def _dispatch_hook(self, event: HookEvent, payload: dict) -> "DispatchResult":  # noqa: F821
+        """调 hook engine 分派事件，并收集 injected_prompts 到 runtime。"""
+        if self._hook_engine is None:
+            from Alincode.hook.engine import DispatchResult
+            return DispatchResult()
+        from Alincode.hook.engine import DispatchResult
+        result = await self._hook_engine.dispatch(event, payload)
+        self.runtime.append_reminders(result.injected_prompts)
+        return result
+
+    def _build_reminder(self, mode: Mode, iteration: int) -> str:
+        """拼接 plan reminder + hook injected prompts。"""
+        reminder = plan_reminder(iteration) if mode == Mode.PLAN else ""
+        pending = self.runtime.take_reminders()
+        if pending:
+            reminder = reminder + "\n\n" + "\n\n".join(pending) if reminder else "\n\n".join(pending)
+        return reminder
 
     async def run(
         self,
@@ -200,6 +222,15 @@ class Agent:
             if will_summarize:
                 yield Event(compact=CompactEvent(phase=CompactPhase.BEFORE_AUTO))
 
+            # ── Hook: PreCompact ──
+            await self._dispatch_hook(HookEvent.PRE_COMPACT, {
+                "event": HookEvent.PRE_COMPACT.value,
+                "session_id": self.runtime.session.session_id,
+                "cwd": str(Path.cwd()),
+                "mode": mode.value,
+                "trigger": "auto",
+            })
+
             in_ = ManageInput(
                 conv=conv,
                 provider=self._provider,
@@ -229,6 +260,16 @@ class Agent:
                     after=out.after_tokens if out else 0,
                     err=mc_err,
                 ))
+            # ── Hook: PostCompact ──
+            await self._dispatch_hook(HookEvent.POST_COMPACT, {
+                "event": HookEvent.POST_COMPACT.value,
+                "session_id": self.runtime.session.session_id,
+                "cwd": str(Path.cwd()),
+                "mode": mode.value,
+                "trigger": "auto",
+                "before_tokens": est,
+                "after_tokens": out.after_tokens if out else 0,
+            })
             if mc_err:
                 yield Event(err=mc_err, notice=str(mc_err), done=True)
                 conv.ensure_assistant_tail(str(mc_err))
@@ -260,7 +301,18 @@ class Agent:
             if active_text:
                 iter_env = iter_env + "\n\n" + active_text if iter_env else active_text
 
-            reminder = plan_reminder(iteration) if mode == Mode.PLAN else ""
+            # ── Hook: PreUserMessage ──
+            if conv.messages:
+                last_msg = conv.messages[-1]
+                await self._dispatch_hook(HookEvent.PRE_USER_MESSAGE, {
+                    "event": HookEvent.PRE_USER_MESSAGE.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "prompt": last_msg.content if last_msg.role == "user" else "",
+                })
+
+            reminder = self._build_reminder(mode, iteration)
             req = Request(
                 system=SystemBlocks(stable=iter_stable, environment=iter_env),
                 messages=conv.messages,
@@ -308,6 +360,15 @@ class Agent:
                 emergency_retried = True
                 yield Event(compact=CompactEvent(phase=CompactPhase.BEFORE_EMERGENCY))
 
+                # ── Hook: PreCompact (emergency) ──
+                await self._dispatch_hook(HookEvent.PRE_COMPACT, {
+                    "event": HookEvent.PRE_COMPACT.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "trigger": "emergency",
+                })
+
                 ein = ManageInput(
                     conv=conv,
                     provider=self._provider,
@@ -336,6 +397,16 @@ class Agent:
                     after=e_out.after_tokens if e_out else 0,
                     err=e_err,
                 ))
+                # ── Hook: PostCompact (emergency) ──
+                await self._dispatch_hook(HookEvent.POST_COMPACT, {
+                    "event": HookEvent.POST_COMPACT.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "trigger": "emergency",
+                    "before_tokens": est,
+                    "after_tokens": e_out.after_tokens if e_out else 0,
+                })
 
                 if e_err:
                     yield Event(err=e_err, notice=str(e_err), done=True)
@@ -391,6 +462,15 @@ class Agent:
                 conv.ensure_assistant_tail(NOTICE_CANCELLED)
                 return
             if err:
+                # ── Hook: Notification ──
+                await self._dispatch_hook(HookEvent.NOTIFICATION, {
+                    "event": HookEvent.NOTIFICATION.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "kind": "stream_error",
+                    "detail": str(err),
+                })
                 yield Event(err=err, notice=NOTICE_PROVIDER_ERROR, done=True)
                 conv.ensure_assistant_tail(NOTICE_PROVIDER_ERROR)
                 return
@@ -415,6 +495,14 @@ class Agent:
                     asyncio.create_task(
                         self._mem_mgr.update_async(recent)
                     )
+                # ── Hook: Stop ──
+                await self._dispatch_hook(HookEvent.STOP, {
+                    "event": HookEvent.STOP.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "iter": iteration,
+                })
                 yield Event(done=True)
                 return
 
@@ -431,7 +519,7 @@ class Agent:
             conv.add_assistant_with_tool_calls(preamble, tool_calls)
 
             # ── 权限检查 + 执行 ──────────────────────────
-            batch_results = self._build_batch_results(tool_calls, mode)
+            batch_results = await self._build_batch_results(tool_calls, mode)
 
             # 处理 ASK：yield 审批事件并等待
             for br in batch_results:
@@ -484,6 +572,24 @@ class Agent:
             for br in batch_results:
                 for te in br.events:
                     yield Event(tool=te)
+
+            # ── Hook: PostToolUse ──
+            import json
+            for call, br in zip(tool_calls, batch_results):
+                try:
+                    tool_input = json.loads(call.input) if call.input.strip() else {}
+                except json.JSONDecodeError:
+                    tool_input = {}
+                await self._dispatch_hook(HookEvent.POST_TOOL_USE, {
+                    "event": HookEvent.POST_TOOL_USE.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "tool": call.name,
+                    "args": tool_input,
+                    "result": _result_preview(br.result),
+                    "is_error": br.result.is_error,
+                })
 
             tool_results = [
                 ToolResult(
@@ -548,10 +654,11 @@ class Agent:
             out = await manage_context(in_)
             return (out.before_tokens, out.after_tokens)
 
-    def _build_batch_results(
+    async def _build_batch_results(
         self, calls: list[ToolCall], mode: Mode,
     ) -> list[_BatchResult]:
-        """第一遍：权限检查，不执行。"""
+        """第一遍：Hook PreToolUse 检查 → 权限检查，不执行。"""
+        import json
         results: list[_BatchResult] = []
         for call in calls:
             if self._registry.get(call.name) is None:
@@ -564,6 +671,32 @@ class Agent:
                     ],
                 ))
                 continue
+
+            # ── Hook: PreToolUse ──
+            try:
+                tool_input = json.loads(call.input) if call.input.strip() else {}
+            except json.JSONDecodeError:
+                tool_input = {}
+            hook_result = await self._dispatch_hook(HookEvent.PRE_TOOL_USE, {
+                "event": HookEvent.PRE_TOOL_USE.value,
+                "session_id": self.runtime.session.session_id,
+                "cwd": str(Path.cwd()),
+                "mode": mode.value,
+                "tool": call.name,
+                "args": tool_input,
+            })
+            if hook_result.blocked:
+                reason = f"[hook {hook_result.blocking_hook_id}] {hook_result.reason}"
+                results.append(_BatchResult(
+                    result=Result(content=reason, is_error=True),
+                    events=[
+                        ToolEvent(name=call.name, args=_args_preview(call), phase=Phase.START),
+                        ToolEvent(name=call.name, args=_args_preview(call), phase=Phase.END,
+                                  result=reason, is_error=True),
+                    ],
+                ))
+                continue
+
             verdict, reason = self._engine.check(call.name, call.input, mode)
             if verdict == Verdict.DENY:
                 results.append(_BatchResult(
@@ -576,6 +709,15 @@ class Agent:
                 ))
                 continue
             if verdict == Verdict.ASK:
+                # ── Hook: Notification (approval) ──
+                await self._dispatch_hook(HookEvent.NOTIFICATION, {
+                    "event": HookEvent.NOTIFICATION.value,
+                    "session_id": self.runtime.session.session_id,
+                    "cwd": str(Path.cwd()),
+                    "mode": mode.value,
+                    "kind": "approval",
+                    "detail": call.name,
+                })
                 fut: asyncio.Future = asyncio.Future()
                 approval = ApprovalRequest(
                     tool_name=call.name, tool_args=_args_preview(call),
