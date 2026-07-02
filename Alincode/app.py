@@ -202,7 +202,8 @@ class AlinCodeApp(App):
                  memory_manager: "MemoryManager | None" = None,
                  workspace: str = "",
                  catalog: "Catalog | None" = None,
-                 hook_engine: "HookEngine | None" = None) -> None:
+                 hook_engine: "HookEngine | None" = None,
+                 task_mgr: "object | None" = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
@@ -217,6 +218,7 @@ class AlinCodeApp(App):
         self._writer = writer
         self._memory_manager = memory_manager
         self.hook_engine = hook_engine
+        self.task_mgr = task_mgr
 
         # 注入 hook_engine 到 runtime
         if hook_engine:
@@ -290,6 +292,28 @@ class AlinCodeApp(App):
         result = await self.hook_engine.dispatch(HookEvent.SESSION_RESUME, payload)
         self.runtime.append_reminders(result.injected_prompts)
 
+    async def _consume_task_done(self) -> None:
+        """消费后台任务完成通知，注入 reminder。"""
+        if not hasattr(self, 'task_mgr'):
+            return
+        q = self.task_mgr.subscribe_done()  # type: ignore[attr-defined]
+        while True:
+            try:
+                task_id = await q.get()
+                bt = self.task_mgr.get(task_id)  # type: ignore[attr-defined]
+                if bt is None:
+                    continue
+                status_name = bt.status.name.lower()
+                notif = (
+                    f"<task-notification>\n"
+                    f"Task {task_id} (name=\"{bt.name}\"): {status_name}\n"
+                    f"Result: {bt.result or bt.err or '(no output)'}\n"
+                    f"</task-notification>"
+                )
+                self.runtime.append_reminders([notif])
+            except Exception:
+                pass
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield ChatLog(id="chat-log")
@@ -335,6 +359,9 @@ class AlinCodeApp(App):
         self.query_one("#message-input", TextArea).focus()
         # ── Hook: SessionStart ──
         asyncio.create_task(self._dispatch_session_start())
+        # ── Task notification 消费 ──
+        if hasattr(self, 'task_mgr'):
+            asyncio.create_task(self._consume_task_done())
 
     def _stream_widget(self) -> StreamText:
         return self.query_one("#stream-text", StreamText)

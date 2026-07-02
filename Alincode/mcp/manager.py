@@ -11,7 +11,7 @@ from Alincode.mcp.config import Config, ServerConfig
 from Alincode.mcp.tool import McpTool, adapt_tool
 
 # 超时常量（包级变量，单测可临时修改）
-connect_timeout: float = 30.0
+connect_timeout: float = 60.0  # 首次 npx 下载包可能需要更久
 close_timeout: float = 5.0
 
 
@@ -71,6 +71,10 @@ async def new_manager(cfg: Config, version: str) -> Manager:
                 f"[mcp] warn: connect server {name} timeout after {connect_timeout}s",
                 file=sys.stderr,
             )
+        except RuntimeError as e:
+            # anyio cancel scope 跨 task 清理错误（Windows MCP SDK 已知问题）
+            print(f"[mcp] warn: connect server {name} runtime error (likely cleanup): {e}",
+                  file=sys.stderr)
         except Exception as e:
             print(f"[mcp] warn: connect server {name} failed: {e}", file=sys.stderr)
 

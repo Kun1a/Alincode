@@ -17,6 +17,14 @@ _FRIENDLY_MAP: dict[str, tuple[str, ToolCategory]] = {
     "Bash": ("bash", ToolCategory.EXEC),
     "Glob": ("glob", ToolCategory.GLOB),
     "Grep": ("grep", ToolCategory.GREP),
+    # ch11-ch13 新增工具
+    "LoadSkill": ("load_skill", ToolCategory.EXEC),
+    "InstallSkill": ("install_skill", ToolCategory.EXEC),
+    "Agent": ("Agent", ToolCategory.EXEC),
+    "TaskList": ("TaskList", ToolCategory.READ),
+    "TaskGet": ("TaskGet", ToolCategory.READ),
+    "TaskStop": ("TaskStop", ToolCategory.EXEC),
+    "SendMessage": ("SendMessage", ToolCategory.EXEC),
 }
 
 # 内部工具名 → 类别

@@ -136,15 +136,21 @@ class Registry:
 
         未知工具 / 超时 / 异常全部转换为 Result(is_error=True)，
         不抛异常给上层（F5/F9/N4）。
+
+        若工具定义了 timeout 属性，优先使用工具自身的超时值。
         """
         tool = self.get(name)
         if tool is None:
             return Result(content=f"未知工具: {name}", is_error=True)
 
+        # 工具可声明自身超时（如 Agent 工具需要更长时间）
+        tool_timeout = getattr(tool, 'timeout', None)
+        effective = tool_timeout if isinstance(tool_timeout, (int, float)) and tool_timeout > 0 else timeout
+
         try:
-            return await asyncio.wait_for(tool.execute(args), timeout=timeout)
+            return await asyncio.wait_for(tool.execute(args), timeout=effective)
         except asyncio.TimeoutError:
-            return Result(content=f"工具 {name} 执行超时（{timeout}s）", is_error=True)
+            return Result(content=f"工具 {name} 执行超时（{effective:.0f}s）", is_error=True)
         except Exception as e:
             return Result(content=f"工具 {name} 异常: {e}", is_error=True)
 

@@ -65,16 +65,21 @@ async def _amain(config_path: str | None = None) -> None:
     # ── MCP 工具发现与注册 ────────────────────────
     root = str(Path.cwd().resolve())
     mcp_cfg = mcp_from_dict(app_cfg.mcp_servers)
-    mcp_mgr = await mcp_new_manager(mcp_cfg, version="0.3.0")
+    mcp_mgr = None
     try:
-        mcp_count = len(mcp_mgr.tools())
-        for t in mcp_mgr.tools():
-            registry.register(t)
-        if mcp_count > 0:
-            print(f"[mcp] registered {mcp_count} MCP tools from {len(mcp_cfg.servers)} server(s)",
-                  file=sys.stderr)
+        mcp_mgr = await mcp_new_manager(mcp_cfg, version="0.3.0")
     except Exception as e:
-        print(f"[mcp] register error: {e}", file=sys.stderr)
+        print(f"[mcp] manager init failed: {e}", file=sys.stderr)
+    if mcp_mgr is not None:
+        try:
+            mcp_count = len(mcp_mgr.tools())
+            for t in mcp_mgr.tools():
+                registry.register(t)
+            if mcp_count > 0:
+                print(f"[mcp] registered {mcp_count} MCP tools from {len(mcp_cfg.servers)} server(s)",
+                      file=sys.stderr)
+        except Exception as e:
+            print(f"[mcp] register error: {e}", file=sys.stderr)
 
     # ── 权限引擎 ──────────────────────────────────
     engine, err = new_engine(root)
@@ -139,6 +144,26 @@ async def _amain(config_path: str | None = None) -> None:
     from Alincode.hook import load_from_dict, Event as HookEvent
     hook_engine = load_from_dict(app_cfg.hooks)
 
+    # ── SubAgent Catalog ─────────────────────────────
+    from Alincode.subagent import load_catalog as subagent_load_catalog
+    subagent_catalog = subagent_load_catalog(workspace)
+
+    # ── Task Manager ─────────────────────────────────
+    from Alincode.task import Manager as TaskManager
+    task_mgr = TaskManager()
+
+    # ── 注册 4 个 task 工具 ──────────────────────────
+    from Alincode.task.tools import TaskListTool, TaskGetTool, TaskStopTool, SendMessageTool
+    registry.register(TaskListTool(task_mgr))
+    registry.register(TaskGetTool(task_mgr))
+    registry.register(TaskStopTool(task_mgr))
+    registry.register(SendMessageTool(task_mgr))
+
+    # ── Agent 工具注册 ──────────────────────────────
+    from Alincode.agent_tool import AgentTool
+    agent_tool = AgentTool(subagent_catalog, task_mgr, parent=None, bg_enabled=True)
+    registry.register(agent_tool)
+
     app = AlinCodeApp(
         provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
         runtime=runtime,
@@ -149,7 +174,11 @@ async def _amain(config_path: str | None = None) -> None:
         workspace=workspace,
         catalog=catalog,
         hook_engine=hook_engine,
+        task_mgr=task_mgr,
     )
+    # 回填 parent 引用
+    agent_tool.set_parent(app.agent)
+    agent_tool.set_conv_getter(lambda: app._conv.messages)
     try:
         await app.run_async()
     finally:
@@ -161,7 +190,8 @@ async def _amain(config_path: str | None = None) -> None:
             "mode": "default",
         })
         writer.close()
-        await mcp_mgr.close()
+        if mcp_mgr is not None:
+            await mcp_mgr.close()
 
 
 def run(config_path: str | None = None) -> None:

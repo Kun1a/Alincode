@@ -45,6 +45,14 @@ from Alincode.tools import Registry, Result, DEFAULT_TIMEOUT
 
 MAX_ITERATIONS = 25
 MAX_UNKNOWN_RUN = 3
+AUTO_BACKGROUND_SECONDS = 120.0
+
+
+class MaxTurnsReached(Exception):
+    """子 Agent 达到 max_turns 上限。"""
+    def __init__(self, final_text: str = "") -> None:
+        super().__init__(f"max turns reached: {final_text[:100]}")
+        self.final_text = final_text
 
 
 class CompactPhase(Enum):
@@ -125,6 +133,13 @@ class Agent:
         memory_text: str = "",
         skills_catalog: "Catalog | None" = None,
         hook_engine: "HookEngine | None" = None,
+        # ── SubAgent 构造参数 ──
+        system_prompt: str | None = None,
+        max_turns: int = 0,
+        permission_mode: str | None = None,
+        dont_ask: bool = False,
+        approval_upgrader: object | None = None,  # ApprovalUpgrader callable
+        allowed_tools: list[str] | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -137,8 +152,171 @@ class Agent:
         self._memory_text = memory_text
         self._catalog = skills_catalog
         self._hook_engine = hook_engine
+
+        # SubAgent 扩展
+        self.system_prompt = system_prompt
+        self.max_turns = max_turns
+        self.permission_mode = permission_mode
+        self.dont_ask = dont_ask
+        self.approval_upgrader = approval_upgrader
+        self._allowed_tools = allowed_tools
+
         self._run_lock = asyncio.Lock()
         self._turn_count = 0
+
+    def _filtered_defs(self, mode: Mode) -> list[ToolDefinition]:
+        """返回过滤后的工具定义（子 Agent 用 allowed_tools 收窄）。"""
+        if mode == Mode.PLAN:
+            base = self._registry.read_only_definitions()
+        else:
+            base = self._registry.definitions()
+        if self._allowed_tools is not None:
+            allowed = set(self._allowed_tools)
+            base = [d for d in base if d.name in allowed]
+        return base
+
+    async def run_to_completion(
+        self,
+        conv: ConversationManager,
+        task: str,
+        events: "asyncio.Queue | None" = None,
+    ) -> str:
+        """子 Agent "跑到底" 模式：非交互执行，模型不再调工具即结束。"""
+        if task:
+            conv.add_user(task)
+
+        mode_str = self.permission_mode or "default"
+        mode_map = {
+            "default": Mode.DEFAULT,
+            "acceptEdits": Mode.ACCEPT_EDITS,
+            "plan": Mode.PLAN,
+            "bypassPermissions": Mode.BYPASS,
+        }
+        mode = mode_map.get(mode_str, Mode.DEFAULT)
+
+        max_iters = self.max_turns if self.max_turns > 0 else MAX_ITERATIONS
+
+        env = await gather_environment(cwd=None, version=self._version, model=self._model)
+        stable, env_block = build_system_prompt(
+            env, instructions=self._instruction_text, memory=self._memory_text,
+            skills_catalog="",
+        )
+        # 子 Agent 有自定义 system_prompt 时替换 env_block
+        if self.system_prompt:
+            env_block = self.system_prompt
+
+        defs = self._filtered_defs(mode)
+        total_input, total_output = 0, 0
+
+        for iteration in range(1, max_iters + 1):
+            # ── 上下文管理 ──
+            async with self.runtime._lock:
+                anchor = self.runtime.usage_anchor
+                anchor_len = self.runtime.anchor_msg_len
+                cw = self.runtime.context_window
+            est = estimate_tokens(anchor, conv.messages, anchor_len)
+            threshold = cw - SUMMARY_RESERVE - AUTO_SAFETY_MARGIN if cw > SUMMARY_RESERVE + AUTO_SAFETY_MARGIN else 0
+            if threshold > 0 and est >= threshold:
+                in_ = ManageInput(
+                    conv=conv, provider=self._provider, context_window=cw,
+                    tool_defs=defs, replacement=self.runtime.replacement,
+                    recovery=self.runtime.recovery, auto_tracking=self.runtime.auto_tracking,
+                    session=self.runtime.session, usage_anchor=anchor,
+                    anchor_msg_len=anchor_len, estimated_token=est,
+                    trigger=TriggerKind.AUTO, model=self._model,
+                )
+                await manage_context(in_)
+
+            reminder = ""
+            req = Request(
+                system=SystemBlocks(stable=stable, environment=env_block),
+                messages=conv.messages, model=self._model,
+                tools=defs, reminder=reminder,
+            )
+
+            preamble = ""
+            tool_calls: list[ToolCall] = []
+            tu_in, tu_out = 0, 0
+
+            try:
+                async for se in self._provider.stream(req):
+                    if se.err:
+                        raise se.err
+                    if se.text:
+                        preamble += se.text
+                    if se.usage:
+                        tu_in += se.usage.input_tokens
+                        tu_out += se.usage.output_tokens
+                    if se.tool_calls:
+                        tool_calls.extend(se.tool_calls)
+            except asyncio.CancelledError:
+                raise
+
+            total_input += tu_in
+            total_output += tu_out
+            if tu_in or tu_out:
+                async with self.runtime._lock:
+                    self.runtime.usage_anchor = calc_usage_anchor(Usage(input_tokens=tu_in, output_tokens=tu_out))
+                    self.runtime.anchor_msg_len = conv.length()
+
+            if not tool_calls:
+                if preamble.strip():
+                    conv.add_assistant(preamble)
+                final = conv.messages[-1].content if conv.messages else preamble
+                return final.strip() or ""
+
+            conv.add_assistant_with_tool_calls(preamble, tool_calls)
+            batch_results = await self._build_batch_results(tool_calls, mode)
+
+            for br in batch_results:
+                if br.pending:
+                    # 子 Agent dont_ask：直接 Allow
+                    if self.dont_ask:
+                        br.pending = None
+                    elif self.approval_upgrader is not None:
+                        # approval_upgrader is a callable
+                        upgrader = self.approval_upgrader
+                        outcome, ok = await upgrader(br.pending)
+                        if ok:
+                            if outcome == Outcome.ALLOW_FOREVER:
+                                from Alincode.permission.rules import tool_to_friendly
+                                self._engine.save_permanent_allow(
+                                    tool_to_friendly(br.call.name) if br.call else "",
+                                    br.call.input if br.call else "",
+                                )
+                                br.pending = None
+                            elif outcome == Outcome.ALLOW_ONCE:
+                                br.pending = None
+                            else:
+                                br.result = Result(content="用户拒绝了该操作", is_error=True)
+                                br.events.append(ToolEvent(
+                                    name=br.call.name if br.call else "", args=_args_preview(br.call) if br.call else "",
+                                    phase=Phase.END, result="用户拒绝了该操作", is_error=True,
+                                ))
+                                br.pending = None
+                                br.call = None
+                        else:
+                            # upgrader 无法处理，走默认 Approval event emit
+                            pass
+
+            # 执行已批准的工具
+            await self._execute_approved(batch_results, asyncio.Event())
+
+            for br in batch_results:
+                for te in br.events:
+                    if events is not None:
+                        try:
+                            events.put_nowait(Event(tool=te))
+                        except asyncio.QueueFull:
+                            pass
+
+            tool_results = [
+                ToolResult(tool_call_id=call.id, content=br.result.content, is_error=br.result.is_error)
+                for call, br in zip(tool_calls, batch_results)
+            ]
+            conv.add_tool_results(tool_calls, tool_results)
+
+        raise MaxTurnsReached(conv.messages[-1].content if conv.messages else "")
 
     async def _dispatch_hook(self, event: HookEvent, payload: dict) -> "DispatchResult":  # noqa: F821
         """调 hook engine 分派事件，并收集 injected_prompts 到 runtime。"""
