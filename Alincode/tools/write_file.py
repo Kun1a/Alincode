@@ -56,7 +56,8 @@ class WriteFileTool:
         if "content" not in (data if isinstance(data, dict) else {}):
             return Result(content="缺少必填参数: content", is_error=True)
 
-        file_path = Path(path_str)
+        from Alincode.tool.ctx import resolve_path
+        file_path = Path(resolve_path(path_str))
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")

@@ -60,7 +60,8 @@ class GlobTool:
         if not pattern:
             return Result(content="缺少必填参数: pattern", is_error=True)
 
-        root = Path(root_str)
+        from Alincode.tool.ctx import resolve_path
+        root = Path(resolve_path(root_str))
         try:
             # 使用 pathlib 原生 glob（支持 **）
             matches = []

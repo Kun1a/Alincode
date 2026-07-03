@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 from typing import TYPE_CHECKING
 
 from Alincode.tools import Result
@@ -15,6 +16,17 @@ from Alincode.agent import AUTO_BACKGROUND_SECONDS
 def is_fork_context_str(s: str) -> bool:
     """检查字符串中是否含 fork boilerplate 标记。"""
     return FORK_BOILERPLATE_TAG in s
+
+
+def _build_worktree_notice(parent_cwd: str, wt_path: str) -> str:
+    """构建 Worktree 上下文通知（F22）。"""
+    return f"""<worktree-context>
+你当前在一个独立的 Git Worktree 副本中工作，与父 Agent 隔离。
+- 父目录: {parent_cwd}
+- 你的工作目录: {wt_path}
+- 父 Agent 提到的绝对路径基于父目录，你需要翻译成本地路径（替换前缀）再读写
+- 编辑文件前，必须先在本地 Worktree 重新 read_file 一次，避免使用过时内容
+</worktree-context>"""
 
 if TYPE_CHECKING:
     from Alincode.agent import Agent
@@ -36,12 +48,14 @@ class AgentTool:
         parent: "Agent | None" = None,
         bg_enabled: bool = True,
         conv_getter: "object | None" = None,  # callable → list[Message]
+        worktree_mgr: "object | None" = None,  # Worktree Manager
     ) -> None:
         self._catalog = catalog
         self._task_mgr = task_mgr
         self._parent = parent
         self._bg_enabled = bg_enabled
         self._conv_getter = conv_getter
+        self._worktree_mgr = worktree_mgr
 
     def set_parent(self, ag: "Agent") -> None:
         self._parent = ag
@@ -49,6 +63,10 @@ class AgentTool:
     def set_conv_getter(self, getter: object) -> None:
         """设置父对话消息获取回调（Fork 路径需要）。"""
         self._conv_getter = getter
+
+    def set_worktree_mgr(self, mgr: object) -> None:
+        """设置 Worktree Manager（isolation 需要）。"""
+        self._worktree_mgr = mgr
 
     def name(self) -> str:
         return "Agent"
@@ -99,6 +117,10 @@ class AgentTool:
                     "type": "string",
                     "description": "给子 Agent 命名（供 SendMessage 查找）",
                 },
+                "isolation": {
+                    "type": "string",
+                    "description": "文件系统隔离模式：留空 / worktree",
+                },
             },
             "required": ["prompt", "description"],
         }
@@ -114,6 +136,7 @@ class AgentTool:
         subagent_type = data.get("subagent_type", "")
         run_in_background = bool(data.get("run_in_background", False))
         agent_name = data.get("name", "")
+        isolation_override = data.get("isolation", "") or ""  # 空 → 用 definition 的 isolation
 
         if not prompt:
             return Result(content="prompt is required", is_error=True)
@@ -138,6 +161,13 @@ class AgentTool:
             defi = self._catalog.fork_definition()
 
         is_fork = defi.is_fork()
+
+        # isolation 参数覆盖 definition 的值（copy 避免污染 catalog 缓存）
+        if isolation_override:
+            import copy
+            defi = copy.copy(defi)
+            defi.isolation = isolation_override
+
         background = defi.background or run_in_background or is_fork
 
         if background and not self._bg_enabled:
@@ -152,6 +182,18 @@ class AgentTool:
             allowed=defi.tools,
             disallowed=defi.disallowed_tools,
         ))
+
+        # ── Worktree isolation ───────────────────────
+        wt_path = ""
+        worktree_name = ""
+        if defi.isolation == "worktree" and self._worktree_mgr is not None:
+            wt_mgr = self._worktree_mgr
+            worktree_name = f"agent-a{secrets.token_hex(4)}"  # 8 hex chars
+            try:
+                wt = await wt_mgr.create(worktree_name, "HEAD", manual=False)  # type: ignore[union-attr]
+                wt_path = wt.path  # type: ignore[union-attr]
+            except Exception as e:
+                return Result(content=f"worktree create failed: {e}", is_error=True)
 
         # ── 构造子 Agent ─────────────────────────────
         from Alincode.runtime import SessionRuntime as SR
@@ -185,23 +227,48 @@ class AgentTool:
         else:
             sub_conv = ConversationManager()
 
+        # ── Worktree notice 注入 ──────────────────────
+        task_text = "" if is_fork else prompt
+        if wt_path:
+            import os as _os
+            parent_cwd = _os.getcwd()
+            notice = _build_worktree_notice(parent_cwd, wt_path)
+            task_text = notice + "\n\n" + task_text if task_text else notice
+
         # ── 后台路径 ─────────────────────────────────
         if background:
             task_id = await self._task_mgr.launch(
-                sub_agent, sub_conv, agent_name,
-                "" if is_fork else prompt  # Fork conv 已含 prompt，不重复追加
+                sub_agent, sub_conv, agent_name, task_text,
             )
             return Result(content=json.dumps({"task_id": task_id, "status": "async_launched"}))
 
-        # ── 前台路径 ─────────────────────────────────
+        # ── 前台路径（含 worktree cwd 注入）──────────
         events: asyncio.Queue = asyncio.Queue(maxsize=32)
+        final_text = ""
+
+        async def _run_in_ctx():
+            from Alincode.tool.ctx import with_cwd
+            if wt_path:
+                with with_cwd(wt_path):
+                    return await asyncio.wait_for(
+                        sub_agent.run_to_completion(sub_conv, task_text, events),
+                        timeout=AUTO_BACKGROUND_SECONDS,
+                    )
+            else:
+                return await asyncio.wait_for(
+                    sub_agent.run_to_completion(sub_conv, task_text, events),
+                    timeout=AUTO_BACKGROUND_SECONDS,
+                )
+
         try:
-            final_text = await asyncio.wait_for(
-                sub_agent.run_to_completion(sub_conv, prompt, events),
-                timeout=AUTO_BACKGROUND_SECONDS,
-            )
-            return Result(content=final_text)
+            final_text = await _run_in_ctx()
         except asyncio.TimeoutError:
+            # ── Worktree auto cleanup (timeout) ───
+            if wt_path and self._worktree_mgr is not None:
+                try:
+                    await self._worktree_mgr.auto_cleanup(worktree_name)  # type: ignore[union-attr]
+                except Exception:
+                    pass
             running = asyncio.create_task(sub_agent.run_to_completion(sub_conv, "", events))
             from Alincode.task.manager import PartialState
             task_id = await self._task_mgr.adopt_running(
@@ -209,4 +276,21 @@ class AgentTool:
             )
             return Result(content=json.dumps({"task_id": task_id, "status": "timed_out_to_background"}))
         except Exception as e:
+            # ── Worktree auto cleanup (error) ─────
+            if wt_path and self._worktree_mgr is not None:
+                try:
+                    await self._worktree_mgr.auto_cleanup(worktree_name)  # type: ignore[union-attr]
+                except Exception:
+                    pass
             return Result(content=f"subagent error: {e}", is_error=True)
+
+        # ── Worktree auto cleanup (success) ──────
+        if wt_path and self._worktree_mgr is not None:
+            try:
+                report = await self._worktree_mgr.auto_cleanup(worktree_name)  # type: ignore[union-attr]
+                if report.kept:
+                    final_text = final_text + f"\n[Worktree 保留在 {report.path}, 分支 {report.branch}]"
+            except Exception:
+                pass
+
+        return Result(content=final_text)

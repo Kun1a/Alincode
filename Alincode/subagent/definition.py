@@ -30,6 +30,7 @@ class Definition:
     permission_mode: str = "default"       # default / acceptEdits / plan / bypassPermissions / dontAsk
     dont_ask: bool = False                 # 是否自动批准 ASK 类工具
     background: bool = False               # 强制后台
+    isolation: str = ""                    # "" / "worktree" — 文件系统隔离模式
     system_prompt: str = ""                # Markdown body（去 frontmatter 后的全文）
     file_path: str = ""                    # 定义文件路径（调试用）
     source: Source = Source.BUILTIN

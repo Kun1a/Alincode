@@ -76,7 +76,8 @@ class GrepTool:
         except re.error as e:
             return Result(content=f"正则非法: {e}", is_error=True)
 
-        root = Path(root_str)
+        from Alincode.tool.ctx import resolve_path
+        root = Path(resolve_path(root_str))
         if not root.exists():
             return Result(content=f"路径不存在: {root_str}", is_error=True)
 

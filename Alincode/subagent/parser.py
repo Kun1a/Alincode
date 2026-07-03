@@ -98,6 +98,15 @@ def parse_definition(data: bytes, file_path: str, source: Source) -> Definition:
     # background
     background = bool(fm.get("background", False))
 
+    # isolation
+    isolation_str = str(fm.get("isolation", "")).strip()
+    if isolation_str not in ("", "worktree"):
+        print(
+            f"subagent {name}: unknown isolation {isolation_str!r}, defaulting to empty",
+            file=sys.stderr,
+        )
+        isolation_str = ""
+
     return Definition(
         name=name,
         description=description,
@@ -108,6 +117,7 @@ def parse_definition(data: bytes, file_path: str, source: Source) -> Definition:
         permission_mode=perm_str,
         dont_ask=dont_ask,
         background=background,
+        isolation=isolation_str,
         system_prompt=body.strip(),
         file_path=file_path,
         source=source,

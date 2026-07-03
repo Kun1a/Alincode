@@ -56,10 +56,12 @@ class BashTool:
             return Result(content="缺少必填参数: command", is_error=True)
 
         try:
+            from Alincode.tool.ctx import resolve_path
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                cwd=resolve_path("") or None,
             )
             stdout_b, stderr_b = await proc.communicate()
             stdout = stdout_b.decode("utf-8", errors="replace")

@@ -64,7 +64,8 @@ class EditFileTool:
         if "old_string" not in (data if isinstance(data, dict) else {}):
             return Result(content="缺少必填参数: old_string", is_error=True)
 
-        file_path = Path(path_str)
+        from Alincode.tool.ctx import resolve_path
+        file_path = Path(resolve_path(path_str))
         if not file_path.is_file():
             return Result(content=f"文件不存在: {path_str}", is_error=True)
 

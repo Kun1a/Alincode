@@ -159,10 +159,24 @@ async def _amain(config_path: str | None = None) -> None:
     registry.register(TaskStopTool(task_mgr))
     registry.register(SendMessageTool(task_mgr))
 
+    # ── Worktree Manager ────────────────────────────
+    wt_mgr = None
+    try:
+        from Alincode.worktree import Manager as WorktreeManager
+        wt_mgr = WorktreeManager(workspace)
+    except ValueError as e:
+        print(f"worktree: init skipped: {e}", file=sys.stderr)
+
     # ── Agent 工具注册 ──────────────────────────────
     from Alincode.agent_tool import AgentTool
-    agent_tool = AgentTool(subagent_catalog, task_mgr, parent=None, bg_enabled=True)
+    agent_tool = AgentTool(subagent_catalog, task_mgr, parent=None, bg_enabled=True,
+                           worktree_mgr=wt_mgr)
     registry.register(agent_tool)
+
+    # ── 过期 Worktree 清理 ───────────────────────────
+    if wt_mgr is not None:
+        from datetime import datetime, timedelta
+        asyncio.create_task(wt_mgr.sweep_stale(datetime.now() - timedelta(hours=24)))
 
     app = AlinCodeApp(
         provider=provider, model=provider_cfg.model, registry=registry, engine=engine,
