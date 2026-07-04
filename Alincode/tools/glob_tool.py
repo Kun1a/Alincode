@@ -61,6 +61,7 @@ class GlobTool:
             return Result(content="缺少必填参数: pattern", is_error=True)
 
         from Alincode.tool.ctx import resolve_path
+
         root = Path(resolve_path(root_str))
         try:
             # 使用 pathlib 原生 glob（支持 **）
@@ -81,7 +82,9 @@ class GlobTool:
             if not matches:
                 return Result(content=f"无匹配: {pattern}（在 {root_str} 下）")
 
-            lines = [f"匹配 {pattern}（在 {root_str} 下）共 {len(matches)} 条:"] + matches
+            lines = [
+                f"匹配 {pattern}（在 {root_str} 下）共 {len(matches)} 条:"
+            ] + matches
             if count >= MAX_RESULTS:
                 lines.append("[truncated]")
             return Result(content="\n".join(lines))
@@ -93,6 +96,16 @@ class GlobTool:
         """排除常见忽略目录。"""
         parts = set(p.parts)
         return bool(
-            parts & {".git", ".venv", "node_modules", "__pycache__",
-                      ".idea", ".vscode", "venv", ".tox", ".mypy_cache"}
+            parts
+            & {
+                ".git",
+                ".venv",
+                "node_modules",
+                "__pycache__",
+                ".idea",
+                ".vscode",
+                "venv",
+                ".tox",
+                ".mypy_cache",
+            }
         )

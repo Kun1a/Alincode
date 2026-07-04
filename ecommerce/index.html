@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>脑力研究所 — 带脑子的科技产品</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============================================================ -->
+  <!-- NAVIGATION -->
+  <!-- ============================================================ -->
+  <header class="nav" role="banner">
+    <div class="nav__inner">
+      <a href="#" class="nav__logo" aria-label="脑力研究所 首页">
+        <span class="nav__logo-icon">🧠</span>
+        <span class="nav__logo-text">脑力研究所</span>
+      </a>
+      <nav class="nav__links" role="navigation" aria-label="主导航">
+        <a href="#" class="nav__link">产品</a>
+        <a href="#" class="nav__link">分类</a>
+        <a href="#" class="nav__link">故事</a>
+      </nav>
+      <button class="nav__cart" aria-label="购物车">
+        <span class="nav__cart-icon">🛒</span>
+        <span class="nav__cart-count">0</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================================================ -->
+  <!-- HERO -->
+  <!-- ============================================================ -->
+  <section class="hero" id="hero">
+    <canvas class="hero__canvas" id="brainwave" aria-hidden="true"></canvas>
+    <div class="hero__overlay"></div>
+    <div class="hero__content">
+      <p class="hero__eyebrow">脑力研究所 · 2025</p>
+      <h1 class="hero__title">想清楚，<br/>再选择</h1>
+      <p class="hero__sub">只做带脑子的科技产品</p>
+      <a href="#" class="btn btn--primary">
+        探索产品
+        <span class="btn__arrow">→</span>
+      </a>
+    </div>
+    <div class="hero__scroll-hint" aria-hidden="true">
+      <span class="hero__scroll-text">滚动</span>
+      <span class="hero__scroll-line"></span>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- HOT PRODUCTS — 水平滑动 -->
+  <!-- ============================================================ -->
+  <section class="section hot" id="products">
+    <div class="section__header">
+      <h2 class="section__title">热卖单品</h2>
+      <p class="section__desc">这些是最近最受关注的家伙</p>
+    </div>
+    <div class="hot__track" role="list" aria-label="热卖产品列表">
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">⌨️</div>
+        <h3 class="product-card__name">神经脉冲键盘</h3>
+        <p class="product-card__desc">触感反馈 · 智能键程 · 全铝机身</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 899</span>
+          <button class="product-card__btn" aria-label="加入购物车 — 神经脉冲键盘">加入</button>
+        </div>
+      </article>
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">🎧</div>
+        <h3 class="product-card__name">AI 深度降噪耳机</h3>
+        <p class="product-card__desc">自适应环境 · 48h 续航 · 钛合金振膜</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 1,299</span>
+          <button class="product-card__btn" aria-label="加入购物车 — AI 深度降噪耳机">加入</button>
+        </div>
+      </article>
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">💡</div>
+        <h3 class="product-card__name">智能光谱台灯</h3>
+        <p class="product-card__desc">色温自适应 · 无频闪 · 无线充电底座</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 459</span>
+          <button class="product-card__btn" aria-label="加入购物车 — 智能光谱台灯">加入</button>
+        </div>
+      </article>
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">📓</div>
+        <h3 class="product-card__name">思维导图平板</h3>
+        <p class="product-card__desc">墨水屏 · 手写识别 · 云端同步</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 2,399</span>
+          <button class="product-card__btn" aria-label="加入购物车 — 思维导图平板">加入</button>
+        </div>
+      </article>
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">🔋</div>
+        <h3 class="product-card__name">磁吸超充站</h3>
+        <p class="product-card__desc">三设备同时 · 65W 氮化镓 · 极简美学</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 299</span>
+          <button class="product-card__btn" aria-label="加入购物车 — 磁吸超充站">加入</button>
+        </div>
+      </article>
+      <article class="product-card" role="listitem">
+        <div class="product-card__emoji">🖥️</div>
+        <h3 class="product-card__name">像素画框显示器</h3>
+        <p class="product-card__desc">4K 大屏 · 壁挂美学 · 一线连接</p>
+        <div class="product-card__foot">
+          <span class="product-card__price">¥ 3,599</span>
+          <button class="product-card__btn" aria-label="加入购物车 — 像素画框显示器">加入</button>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- PILLARS — 三大信条 -->
+  <!-- ============================================================ -->
+  <section class="section pillars" id="about">
+    <div class="section__header">
+      <h2 class="section__title">为什么不一样</h2>
+      <p class="section__desc">带脑子不是一句口号，是三件事</p>
+    </div>
+    <div class="pillars__grid">
+      <div class="pillar" data-reveal>
+        <span class="pillar__icon">🔬</span>
+        <h3 class="pillar__title">硬核技术</h3>
+        <p class="pillar__desc">每一个 SKU 都经过 32 项实测，参数不掺水，体验不妥协。我们不卖自己不会用的东西。</p>
+      </div>
+      <div class="pillar" data-reveal>
+        <span class="pillar__icon">🎯</span>
+        <h3 class="pillar__title">精准选品</h3>
+        <p class="pillar__desc">每月从 200+ 新品中挑出 3-5 件。不是大而全，是精而准。你花的时间，我们替你省掉。</p>
+      </div>
+      <div class="pillar" data-reveal>
+        <span class="pillar__icon">💡</span>
+        <h3 class="pillar__title">透明参数</h3>
+        <p class="pillar__desc">没用的功能不吹，有用的细节不藏。每一行参数都写人话，你看得懂，才买得对。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- CATEGORIES -->
+  <!-- ============================================================ -->
+  <section class="section categories" id="categories">
+    <div class="section__header">
+      <h2 class="section__title">挑选你的领域</h2>
+      <p class="section__desc">每个品类都只留最好的那几个</p>
+    </div>
+    <div class="categories__grid">
+      <a href="#" class="category-card" data-reveal>
+        <span class="category-card__emoji">🤖</span>
+        <span class="category-card__label">AI 硬件</span>
+        <span class="category-card__count">12 件</span>
+      </a>
+      <a href="#" class="category-card" data-reveal>
+        <span class="category-card__emoji">⌚</span>
+        <span class="category-card__label">智能穿戴</span>
+        <span class="category-card__count">8 件</span>
+      </a>
+      <a href="#" class="category-card" data-reveal>
+        <span class="category-card__emoji">🖌️</span>
+        <span class="category-card__label">桌面美学</span>
+        <span class="category-card__count">15 件</span>
+      </a>
+      <a href="#" class="category-card" data-reveal>
+        <span class="category-card__emoji">⚡</span>
+        <span class="category-card__label">充电续航</span>
+        <span class="category-card__count">9 件</span>
+      </a>
+    </div>
+  </section>
+
+  <!-- ============================================================ -->
+  <!-- FOOTER -->
+  <!-- ============================================================ -->
+  <footer class="footer" role="contentinfo">
+    <div class="footer__inner">
+      <div class="footer__brand">
+        <span class="footer__logo">🧠 脑力研究所</span>
+        <p class="footer__tagline">只做带脑子的产品</p>
+      </div>
+      <nav class="footer__nav" aria-label="底部导航">
+        <a href="#" class="footer__link">关于我们</a>
+        <a href="#" class="footer__link">联系合作</a>
+        <a href="#" class="footer__link">隐私政策</a>
+        <a href="#" class="footer__link">退换说明</a>
+      </nav>
+      <p class="footer__copy">&copy; 2025 脑力研究所 · 用心选品，不负期待。</p>
+    </div>
+  </footer>
+
+  <script src="scripts.js"></script>
+</body>
+</html>

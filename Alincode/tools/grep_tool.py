@@ -77,6 +77,7 @@ class GrepTool:
             return Result(content=f"正则非法: {e}", is_error=True)
 
         from Alincode.tool.ctx import resolve_path
+
         root = Path(resolve_path(root_str))
         if not root.exists():
             return Result(content=f"路径不存在: {root_str}", is_error=True)
@@ -107,9 +108,13 @@ class GrepTool:
                                 # 超长行：对截断部分搜索，标注可能不完整
                                 truncated = line[:MAX_LINE_LENGTH]
                                 if rx.search(truncated):
-                                    hits.append(f"{file_path}:{lineno}:{truncated.rstrip()} [截断，搜索结果可能不完整]")
+                                    hits.append(
+                                        f"{file_path}:{lineno}:{truncated.rstrip()} [截断，搜索结果可能不完整]"
+                                    )
                                 else:
-                                    hits.append(f"{file_path}:{lineno}:[行过长，搜索截断未能完整覆盖]")
+                                    hits.append(
+                                        f"{file_path}:{lineno}:[行过长，搜索截断未能完整覆盖]"
+                                    )
                                 continue
                             if rx.search(line):
                                 hits.append(f"{file_path}:{lineno}:{line.rstrip()}")
@@ -130,7 +135,9 @@ class GrepTool:
             return Result(content=f"grep 搜索失败: {e}", is_error=True)
 
         if not hits:
-            return Result(content=f"无命中: /{pattern_str}/（在 {root_str} 下，扫描 {files_scanned} 个文件）")
+            return Result(
+                content=f"无命中: /{pattern_str}/（在 {root_str} 下，扫描 {files_scanned} 个文件）"
+            )
 
         result_lines = [
             f"搜索 /{pattern_str}/（在 {root_str} 下）共 {len(hits)} 条命中:"
@@ -145,6 +152,16 @@ class GrepTool:
         """排除常见忽略目录。"""
         parts = set(p.parts)
         return bool(
-            parts & {".git", ".venv", "node_modules", "__pycache__",
-                      ".idea", ".vscode", "venv", ".tox", ".mypy_cache"}
+            parts
+            & {
+                ".git",
+                ".venv",
+                "node_modules",
+                "__pycache__",
+                ".idea",
+                ".vscode",
+                "venv",
+                ".tox",
+                ".mypy_cache",
+            }
         )

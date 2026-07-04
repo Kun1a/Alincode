@@ -1,4 +1,8 @@
-"""Agent 工具实现：主 Agent 通过此工具委派子 Agent（T17/F1-F3）。"""
+"""Agent 工具实现：主 Agent 通过此工具委派子 Agent（T17/F1-F3）。
+
+team_name 分支委托 spawn_teammate 处理 Team 队员 spawn。
+非 team_name 分支保持 ch13 原始逻辑（定义式 / Fork 式）。
+"""
 
 from __future__ import annotations
 
@@ -28,10 +32,12 @@ def _build_worktree_notice(parent_cwd: str, wt_path: str) -> str:
 - 编辑文件前，必须先在本地 Worktree 重新 read_file 一次，避免使用过时内容
 </worktree-context>"""
 
+
 if TYPE_CHECKING:
     from Alincode.agent import Agent
     from Alincode.subagent.catalog import Catalog as SubagentCatalog
     from Alincode.task.manager import Manager as TaskManager
+    from Alincode.team.manager import Manager as TeamManager
 
 
 class AgentTool:
@@ -39,6 +45,7 @@ class AgentTool:
 
     subagent_type 非空 → 定义式（预定义角色）
     subagent_type 为空 → Fork 式（继承父对话）
+    team_name 非空 → Team 队员 spawn（直接处理，不委托 team_hook）
     """
 
     def __init__(
@@ -49,6 +56,7 @@ class AgentTool:
         bg_enabled: bool = True,
         conv_getter: "object | None" = None,  # callable → list[Message]
         worktree_mgr: "object | None" = None,  # Worktree Manager
+        team_manager: "TeamManager | None" = None,  # Team Manager（替代 team_hook）
     ) -> None:
         self._catalog = catalog
         self._task_mgr = task_mgr
@@ -56,6 +64,7 @@ class AgentTool:
         self._bg_enabled = bg_enabled
         self._conv_getter = conv_getter
         self._worktree_mgr = worktree_mgr
+        self._team_manager = team_manager
 
     def set_parent(self, ag: "Agent") -> None:
         self._parent = ag
@@ -67,6 +76,10 @@ class AgentTool:
     def set_worktree_mgr(self, mgr: object) -> None:
         """设置 Worktree Manager（isolation 需要）。"""
         self._worktree_mgr = mgr
+
+    def set_team_manager(self, mgr: "TeamManager") -> None:
+        """设置 Team Manager（team_name 分支直接处理 spawn）。"""
+        self._team_manager = mgr
 
     def name(self) -> str:
         return "Agent"
@@ -84,7 +97,9 @@ class AgentTool:
         names = [d.name for d in self._catalog.list()]
         base = (
             "启动一个子 Agent 独立完成任务。"
-            "subagent_type 可选值: " + ", ".join(names) + "。"
+            "subagent_type 可选值: "
+            + ", ".join(names)
+            + "。"
             + "留空走 Fork 路径（继承父对话历史）。"
         )
         return base
@@ -121,6 +136,10 @@ class AgentTool:
                     "type": "string",
                     "description": "文件系统隔离模式：留空 / worktree",
                 },
+                "team_name": {
+                    "type": "string",
+                    "description": "Team 队员 spawn:非空时走 Team 分支(需先 TeamCreate)",
+                },
             },
             "required": ["prompt", "description"],
         }
@@ -131,12 +150,19 @@ class AgentTool:
         except json.JSONDecodeError:
             return Result(content="invalid JSON args", is_error=True)
 
+        # ── Team spawn 分支——team_name 非空时直接处理 ────
+        team_name = data.get("team_name", "")
+        if team_name:
+            return await self._execute_team_spawn(data, team_name)
+
         prompt = data.get("prompt", "")
         description = data.get("description", "")
         subagent_type = data.get("subagent_type", "")
         run_in_background = bool(data.get("run_in_background", False))
         agent_name = data.get("name", "")
-        isolation_override = data.get("isolation", "") or ""  # 空 → 用 definition 的 isolation
+        isolation_override = (
+            data.get("isolation", "") or ""
+        )  # 空 → 用 definition 的 isolation
 
         if not prompt:
             return Result(content="prompt is required", is_error=True)
@@ -150,13 +176,18 @@ class AgentTool:
 
         # ── 防嵌套：提示词中检测 fork boilerplate ────
         if prompt and is_fork_context_str(prompt):
-            return Result(content="Fork subagent cannot spawn Agent (boilerplate detected)", is_error=True)
+            return Result(
+                content="Fork subagent cannot spawn Agent (boilerplate detected)",
+                is_error=True,
+            )
 
         # ── Resolve 定义 ─────────────────────────────
         if subagent_type:
             defi = self._catalog.resolve(subagent_type)
             if defi is None:
-                return Result(content=f"unknown subagent_type: {subagent_type}", is_error=True)
+                return Result(
+                    content=f"unknown subagent_type: {subagent_type}", is_error=True
+                )
         else:
             defi = self._catalog.fork_definition()
 
@@ -165,23 +196,28 @@ class AgentTool:
         # isolation 参数覆盖 definition 的值（copy 避免污染 catalog 缓存）
         if isolation_override:
             import copy
+
             defi = copy.copy(defi)
             defi.isolation = isolation_override
 
         background = defi.background or run_in_background or is_fork
 
         if background and not self._bg_enabled:
-            return Result(content="background mode is disabled by config", is_error=True)
+            return Result(
+                content="background mode is disabled by config", is_error=True
+            )
 
         # ── 工具过滤 ─────────────────────────────────
         all_names = [d.name for d in parent._registry.definitions()]
-        allowed = apply_agent_tool_filter(FilterParams(
-            all_tools=all_names,
-            source=int(defi.source),
-            background=background,
-            allowed=defi.tools,
-            disallowed=defi.disallowed_tools,
-        ))
+        allowed = apply_agent_tool_filter(
+            FilterParams(
+                all_tools=all_names,
+                source=int(defi.source),
+                background=background,
+                allowed=defi.tools,
+                disallowed=defi.disallowed_tools,
+            )
+        )
 
         # ── Worktree isolation ───────────────────────
         wt_path = ""
@@ -231,6 +267,7 @@ class AgentTool:
         task_text = "" if is_fork else prompt
         if wt_path:
             import os as _os
+
             parent_cwd = _os.getcwd()
             notice = _build_worktree_notice(parent_cwd, wt_path)
             task_text = notice + "\n\n" + task_text if task_text else notice
@@ -238,9 +275,14 @@ class AgentTool:
         # ── 后台路径 ─────────────────────────────────
         if background:
             task_id = await self._task_mgr.launch(
-                sub_agent, sub_conv, agent_name, task_text,
+                sub_agent,
+                sub_conv,
+                agent_name,
+                task_text,
             )
-            return Result(content=json.dumps({"task_id": task_id, "status": "async_launched"}))
+            return Result(
+                content=json.dumps({"task_id": task_id, "status": "async_launched"})
+            )
 
         # ── 前台路径（含 worktree cwd 注入）──────────
         events: asyncio.Queue = asyncio.Queue(maxsize=32)
@@ -248,6 +290,7 @@ class AgentTool:
 
         async def _run_in_ctx():
             from Alincode.tool.ctx import with_cwd
+
             if wt_path:
                 with with_cwd(wt_path):
                     return await asyncio.wait_for(
@@ -269,12 +312,24 @@ class AgentTool:
                     await self._worktree_mgr.auto_cleanup(worktree_name)  # type: ignore[union-attr]
                 except Exception:
                     pass
-            running = asyncio.create_task(sub_agent.run_to_completion(sub_conv, "", events))
-            from Alincode.task.manager import PartialState
-            task_id = await self._task_mgr.adopt_running(
-                sub_agent, sub_conv, agent_name, events, running, PartialState(),
+            running = asyncio.create_task(
+                sub_agent.run_to_completion(sub_conv, "", events)
             )
-            return Result(content=json.dumps({"task_id": task_id, "status": "timed_out_to_background"}))
+            from Alincode.task.manager import PartialState
+
+            task_id = await self._task_mgr.adopt_running(
+                sub_agent,
+                sub_conv,
+                agent_name,
+                events,
+                running,
+                PartialState(),
+            )
+            return Result(
+                content=json.dumps(
+                    {"task_id": task_id, "status": "timed_out_to_background"}
+                )
+            )
         except Exception as e:
             # ── Worktree auto cleanup (error) ─────
             if wt_path and self._worktree_mgr is not None:
@@ -289,8 +344,39 @@ class AgentTool:
             try:
                 report = await self._worktree_mgr.auto_cleanup(worktree_name)  # type: ignore[union-attr]
                 if report.kept:
-                    final_text = final_text + f"\n[Worktree 保留在 {report.path}, 分支 {report.branch}]"
+                    final_text = (
+                        final_text
+                        + f"\n[Worktree 保留在 {report.path}, 分支 {report.branch}]"
+                    )
             except Exception:
                 pass
 
         return Result(content=final_text)
+
+    # ── Team 队员 spawn 分支（委托 spawn_teammate，避免重复逻辑）──
+
+    async def _execute_team_spawn(self, data: dict, team_name: str) -> Result:
+        """Team 队员 spawn：构造 TeamSpawnRequest，委托 spawn_teammate 处理。
+
+        委托内容：取 Team → 校验 in-process 不嵌套 → 解析定义 → 创建 worktree
+        → 构造 teammate_registry → 按后端分流 → 注册 → add_member → 返回 JSON。
+        """
+        if self._team_manager is None:
+            return Result(content="team_manager not wired", is_error=True)
+
+        from Alincode.team_hook import TeamSpawnRequest
+
+        req = TeamSpawnRequest(
+            team_name=team_name,
+            member_name=data.get("name", ""),
+            subagent_type=data.get("subagent_type", ""),
+            model=data.get("model", ""),
+            prompt=data.get("prompt", ""),
+            plan_mode_required=bool(data.get("plan_mode_required", False)),
+        )
+
+        try:
+            result_json = await self._team_manager.spawn_teammate(req)
+            return Result(content=result_json)
+        except Exception as e:
+            return Result(content=f"Team spawn 失败: {e}", is_error=True)

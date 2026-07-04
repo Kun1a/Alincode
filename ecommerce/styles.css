@@ -1,0 +1,709 @@
+/* ================================================================
+   脑力研究所 — Ecommerce Styles
+   Design tokens: deep space (#0A0A0F), surface (#12121A),
+   border (#1E1E2A), electron purple (#7C5CFC),
+   quantum cyan (#00D4AA), primary text (#EAEAEF),
+   secondary text (#88889A)
+   ================================================================ */
+
+/* --- Reset & Base --------------------------------------------- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #0A0A0F;
+  color: #EAEAEF;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+/* --- Focus Visible ------------------------------------------ */
+:focus-visible {
+  outline: 2px solid #7C5CFC;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* --- Container Utility -------------------------------------- */
+.section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 100px 24px;
+}
+
+.section__header {
+  margin-bottom: 56px;
+}
+
+.section__title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: #EAEAEF;
+}
+
+.section__desc {
+  font-family: "Inter", sans-serif;
+  font-size: clamp(15px, 1.2vw, 18px);
+  font-weight: 400;
+  color: #88889A;
+  margin-top: 10px;
+}
+
+/* ================================================================
+   NAVIGATION
+   ================================================================ */
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(10, 10, 15, 0.75);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid rgba(30, 30, 42, 0.6);
+  transition: background 0.3s, border-color 0.3s;
+}
+
+.nav--scrolled {
+  background: rgba(10, 10, 15, 0.92);
+  border-bottom-color: #1E1E2A;
+}
+
+.nav__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 60px;
+}
+
+.nav__logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #EAEAEF;
+  transition: opacity 0.2s;
+}
+
+.nav__logo:hover {
+  opacity: 0.8;
+}
+
+.nav__logo-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.nav__links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.nav__link {
+  font-size: 14px;
+  font-weight: 500;
+  color: #88889A;
+  transition: color 0.2s;
+  position: relative;
+}
+
+.nav__link::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 0;
+  height: 1.5px;
+  background: #7C5CFC;
+  transition: width 0.3s ease;
+}
+
+.nav__link:hover {
+  color: #EAEAEF;
+}
+
+.nav__link:hover::after {
+  width: 100%;
+}
+
+.nav__cart {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #1E1E2A;
+  transition: border-color 0.2s, background 0.2s;
+  font-size: 14px;
+}
+
+.nav__cart:hover {
+  border-color: #7C5CFC;
+  background: rgba(124, 92, 252, 0.08);
+}
+
+.nav__cart-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 500;
+  color: #7C5CFC;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* ================================================================
+   HERO
+   ================================================================ */
+.hero {
+  position: relative;
+  height: 100vh;
+  min-height: 600px;
+  max-height: 900px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.hero__canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.hero__overlay {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 60% at 50% 80%, rgba(124, 92, 252, 0.08) 0%, transparent 70%),
+    radial-gradient(ellipse 80% 50% at 30% 20%, rgba(0, 212, 170, 0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.hero__content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  padding: 24px;
+  animation: hero-fade-in 1.2s ease-out forwards;
+}
+
+@keyframes hero-fade-in {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.hero__eyebrow {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7C5CFC;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-bottom: 20px;
+}
+
+.hero__title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: clamp(44px, 9vw, 88px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #EAEAEF 30%, #7C5CFC 70%, #00D4AA 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 16px;
+}
+
+.hero__sub {
+  font-size: clamp(16px, 1.8vw, 21px);
+  font-weight: 400;
+  color: #88889A;
+  margin-bottom: 40px;
+  letter-spacing: 0.01em;
+}
+
+.hero__scroll-hint {
+  position: absolute;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 2;
+  animation: hero-scroll-bounce 2.4s ease-in-out infinite;
+}
+
+.hero__scroll-text {
+  font-size: 11px;
+  font-weight: 500;
+  color: #88889A;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hero__scroll-line {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(to bottom, #7C5CFC, transparent);
+}
+
+@keyframes hero-scroll-bounce {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50%      { transform: translateX(-50%) translateY(8px); }
+}
+
+/* --- Button --------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 32px;
+  border-radius: 8px;
+  font-family: "Inter", sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.btn--primary {
+  background: linear-gradient(135deg, #7C5CFC, #6A4CE0);
+  color: #EAEAEF;
+  box-shadow: 0 0 0 1px rgba(124, 92, 252, 0.3);
+}
+
+.btn--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1px rgba(124, 92, 252, 0.6), 0 8px 24px rgba(124, 92, 252, 0.25);
+}
+
+.btn__arrow {
+  transition: transform 0.2s ease;
+}
+
+.btn:hover .btn__arrow {
+  transform: translateX(4px);
+}
+
+/* ================================================================
+   HOT PRODUCTS — Horizontal Scroll
+   ================================================================ */
+.hot {
+  padding-top: 60px;
+  overflow: hidden;
+}
+
+.hot .section__header {
+  padding: 0 24px;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hot__track {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding: 8px 24px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: #1E1E2A transparent;
+}
+
+.hot__track::-webkit-scrollbar {
+  height: 4px;
+}
+
+.hot__track::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hot__track::-webkit-scrollbar-thumb {
+  background: #1E1E2A;
+  border-radius: 4px;
+}
+
+.hot__track::-webkit-scrollbar-thumb:hover {
+  background: #7C5CFC;
+}
+
+/* --- Product Card --------------------------------------------- */
+.product-card {
+  flex: 0 0 280px;
+  scroll-snap-align: start;
+  background: #12121A;
+  border: 1px solid #1E1E2A;
+  border-radius: 16px;
+  padding: 28px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.3s, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.product-card:hover {
+  border-color: rgba(124, 92, 252, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+
+.product-card__emoji {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 20px;
+}
+
+.product-card__name {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.25;
+  margin-bottom: 8px;
+  color: #EAEAEF;
+}
+
+.product-card__desc {
+  font-size: 13px;
+  font-weight: 400;
+  color: #88889A;
+  line-height: 1.5;
+  margin-bottom: auto;
+  flex: 1;
+}
+
+.product-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #1E1E2A;
+}
+
+.product-card__price {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 16px;
+  font-weight: 500;
+  color: #00D4AA;
+}
+
+.product-card__btn {
+  font-size: 13px;
+  font-weight: 500;
+  color: #7C5CFC;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(124, 92, 252, 0.25);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.product-card__btn:hover {
+  background: rgba(124, 92, 252, 0.12);
+  border-color: #7C5CFC;
+}
+
+/* ================================================================
+   PILLARS — 三大信条
+   ================================================================ */
+.pillars {
+  position: relative;
+}
+
+.pillars__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 768px) {
+  .pillars__grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+.pillar {
+  background: #12121A;
+  border: 1px solid #1E1E2A;
+  border-radius: 20px;
+  padding: 40px 32px;
+  transition: border-color 0.3s, transform 0.3s ease;
+}
+
+.pillar:hover {
+  border-color: rgba(124, 92, 252, 0.25);
+  transform: translateY(-3px);
+}
+
+.pillar__icon {
+  font-size: 36px;
+  line-height: 1;
+  display: block;
+  margin-bottom: 24px;
+}
+
+.pillar__title {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #EAEAEF;
+}
+
+.pillar__desc {
+  font-size: 15px;
+  font-weight: 400;
+  color: #88889A;
+  line-height: 1.7;
+}
+
+/* ================================================================
+   CATEGORIES
+   ================================================================ */
+.categories__grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 800px) {
+  .categories__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .categories__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.category-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  background: #12121A;
+  border: 1px solid #1E1E2A;
+  border-radius: 20px;
+  padding: 36px 24px 28px;
+  transition: border-color 0.3s, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.category-card:hover {
+  border-color: rgba(0, 212, 170, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+}
+
+.category-card__emoji {
+  font-size: 44px;
+  line-height: 1;
+  margin-bottom: 16px;
+}
+
+.category-card__label {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  color: #EAEAEF;
+  margin-bottom: 6px;
+}
+
+.category-card__count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 400;
+  color: #88889A;
+}
+
+/* ================================================================
+   FOOTER
+   ================================================================ */
+.footer {
+  border-top: 1px solid #1E1E2A;
+  margin-top: 40px;
+}
+
+.footer__inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 48px 24px 40px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.footer__logo {
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  color: #EAEAEF;
+}
+
+.footer__tagline {
+  font-size: 13px;
+  color: #88889A;
+  margin-top: 4px;
+}
+
+.footer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.footer__link {
+  font-size: 13px;
+  font-weight: 500;
+  color: #88889A;
+  transition: color 0.2s;
+}
+
+.footer__link:hover {
+  color: #7C5CFC;
+}
+
+.footer__copy {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: #555567;
+  margin-top: 8px;
+}
+
+/* ================================================================
+   SCROLL REVEAL ANIMATION
+   ================================================================ */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+[data-reveal].revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ================================================================
+   RESPONSIVE — General Tweaks
+   ================================================================ */
+@media (max-width: 768px) {
+  .section {
+    padding: 60px 20px;
+  }
+
+  .nav__inner {
+    padding: 0 16px;
+    height: 54px;
+  }
+
+  .nav__links {
+    gap: 20px;
+  }
+
+  .nav__link {
+    font-size: 13px;
+  }
+
+  .nav__logo-text {
+    font-size: 16px;
+  }
+
+  .product-card {
+    flex: 0 0 260px;
+    padding: 24px 20px 20px;
+  }
+
+  .pillar {
+    padding: 32px 24px;
+  }
+
+  .footer__inner {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .footer__nav {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .nav__links a:not(:first-child) {
+    display: none;
+  }
+
+  .hero__title {
+    font-size: 36px;
+  }
+
+  .product-card {
+    flex: 0 0 240px;
+  }
+}

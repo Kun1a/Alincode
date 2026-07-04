@@ -39,11 +39,24 @@ def effective_context_window(p: ProviderConfig) -> int:
 
 
 @dataclass
+class FeaturesConfig:
+    """功能开关配置(T25 / F52 / G11)。
+
+    coordinator_mode: Coordinator Mode 双锁之一,默认关闭(F52)。
+    fork_teammate: Fork 队员路径开关,默认关闭(G11)。
+    """
+
+    coordinator_mode: bool = False
+    fork_teammate: bool = False
+
+
+@dataclass
 class AppConfig:
-    """应用级配置：providers 列表 + MCP servers + Hooks。"""
+    """应用级配置：providers 列表 + MCP servers + Hooks + 功能开关。"""
     providers: list[ProviderConfig] = field(default_factory=list)
     mcp_servers: dict = field(default_factory=dict)  # raw dict，由 mcp 层进一步校验
     hooks: list[dict] = field(default_factory=list)   # raw list，由 hook 层进一步校验
+    features: FeaturesConfig = field(default_factory=FeaturesConfig)
 
 
 # ── 加载器 ──────────────────────────────────────────
@@ -84,7 +97,23 @@ class ConfigLoader:
         if isinstance(hooks_raw, list):
             hooks = hooks_raw
 
-        return AppConfig(providers=providers, mcp_servers=mcp_servers, hooks=hooks)
+        # features 段(T25):无段或非字典时用默认值,兼容旧配置
+        features = FeaturesConfig()
+        features_raw = data.get("features")
+        if isinstance(features_raw, dict):
+            known_fields = set(FeaturesConfig.__dataclass_fields__.keys())
+            filtered = {k: v for k, v in features_raw.items() if k in known_fields}
+            extra = [k for k in features_raw if k not in known_fields]
+            if extra:
+                print(f"[config] features 段忽略未知字段: {extra}", file=sys.stderr)
+            features = FeaturesConfig(**filtered)
+
+        return AppConfig(
+            providers=providers,
+            mcp_servers=mcp_servers,
+            hooks=hooks,
+            features=features,
+        )
 
     @staticmethod
     def _parse_providers(data: dict) -> list[ProviderConfig]:

@@ -14,17 +14,20 @@ DEFAULT_TIMEOUT: float = 30.0
 
 # ── 工具执行结果 ─────────────────────────────────────────
 
+
 @dataclass
 class Result:
     """工具执行结果——永远以值类型返回，从不抛 Python 异常给上层。
 
     is_error=True 表示结构化错误，content 即为错误描述。
     """
+
     content: str
     is_error: bool = False
 
 
 # ── 工具抽象 ────────────────────────────────────────────
+
 
 @runtime_checkable
 class Tool(Protocol):
@@ -58,6 +61,7 @@ class Tool(Protocol):
 
 # ── 辅助：文本截断 ────────────────────────────────────────
 
+
 def _truncate(s: str, max_lines: int, max_chars: int) -> str:
     """按行数和字符数上限截断文本，超出尾部追加 [truncated] 标注。
 
@@ -80,6 +84,7 @@ def _truncate(s: str, max_lines: int, max_chars: int) -> str:
 
 # ── 注册中心 ────────────────────────────────────────────
 
+
 class Registry:
     """集中登记工具、按名查我、导出 API 定义、按名执行。
 
@@ -101,6 +106,10 @@ class Registry:
     def get(self, name: str) -> Tool | None:
         """按名查找工具，未找到返回 None。"""
         return self._tools.get(name)
+
+    def tools(self) -> list[tuple[str, Tool]]:
+        """按注册顺序返回 (name, tool) 列表（供 per-team Registry 构建等场景使用）。"""
+        return [(n, self._tools[n]) for n in self._order if n in self._tools]
 
     def definitions(self) -> list[ToolDefinition]:
         """按注册顺序导出协议无关工具定义列表（F3/AC1）。"""
@@ -131,7 +140,9 @@ class Registry:
         tool = self.get(name)
         return tool.read_only if tool else False
 
-    async def execute(self, name: str, args: str, timeout: float = DEFAULT_TIMEOUT) -> Result:
+    async def execute(
+        self, name: str, args: str, timeout: float = DEFAULT_TIMEOUT
+    ) -> Result:
         """按名查找工具并执行，受超时保护。
 
         未知工具 / 超时 / 异常全部转换为 Result(is_error=True)，
@@ -144,18 +155,25 @@ class Registry:
             return Result(content=f"未知工具: {name}", is_error=True)
 
         # 工具可声明自身超时（如 Agent 工具需要更长时间）
-        tool_timeout = getattr(tool, 'timeout', None)
-        effective = tool_timeout if isinstance(tool_timeout, (int, float)) and tool_timeout > 0 else timeout
+        tool_timeout = getattr(tool, "timeout", None)
+        effective = (
+            tool_timeout
+            if isinstance(tool_timeout, (int, float)) and tool_timeout > 0
+            else timeout
+        )
 
         try:
             return await asyncio.wait_for(tool.execute(args), timeout=effective)
         except asyncio.TimeoutError:
-            return Result(content=f"工具 {name} 执行超时（{effective:.0f}s）", is_error=True)
+            return Result(
+                content=f"工具 {name} 执行超时（{effective:.0f}s）", is_error=True
+            )
         except Exception as e:
             return Result(content=f"工具 {name} 异常: {e}", is_error=True)
 
 
 # ── 默认工具集工厂 ─────────────────────────────────────────
+
 
 def new_default_registry() -> Registry:
     """构造并注册 6 个核心工具，返回 Registry。

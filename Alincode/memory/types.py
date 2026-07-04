@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from enum import StrEnum
+from enum import Enum
 
 
-class NoteType(StrEnum):
+class NoteType(str, Enum):
     USER_PREFERENCE = "user_preference"
     CORRECTION_FEEDBACK = "correction_feedback"
     PROJECT_KNOWLEDGE = "project_knowledge"

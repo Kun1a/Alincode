@@ -75,6 +75,8 @@ class Manager:
         self._by_name: dict[str, str] = {}
         self._done: asyncio.Queue[str] = asyncio.Queue(maxsize=32)
         self._counter: int = 0
+        self._name_reg = None  # AgentNameRegistry,由 set_name_registry 注入(T21)
+        self._on_done_callbacks: list = []  # on_task_done 回调列表(T21)
 
     def _next_id(self) -> str:
         self._counter += 1
@@ -88,6 +90,25 @@ class Manager:
 
     def subscribe_done(self) -> asyncio.Queue[str]:
         return self._done
+
+    def set_name_registry(self, reg) -> None:
+        """注入 AgentNameRegistry(T21)。launch/send_message 优先用它寻址。"""
+        self._name_reg = reg
+
+    def on_task_done(self, fn) -> None:
+        """注册 task 完成回调(T21)。可注册多个,Team idle 通知走这条路径。"""
+        self._on_done_callbacks.append(fn)
+
+    async def _fire_done_callbacks(self, task_id: str) -> None:
+        """逐个调 on_task_done 回调(T21)。"""
+        for fn in self._on_done_callbacks:
+            try:
+                await fn(task_id)
+            except Exception as e:
+                print(
+                    f"task manager: on_task_done callback error: {e}",
+                    file=sys.stderr,
+                )
 
     async def launch(
         self, ag: "Agent", conv: "ConversationManager",
@@ -104,6 +125,8 @@ class Manager:
             self._tasks[task_id] = bt
             if name:
                 self._by_name[name] = task_id
+                if self._name_reg is not None:
+                    self._name_reg.register(name, task_id)
 
         events: asyncio.Queue = asyncio.Queue(maxsize=64)
         aggregator = asyncio.create_task(self._aggregate_events(events, bt))
@@ -128,6 +151,8 @@ class Manager:
                         f"task manager: done queue full, dropping notification for {task_id}",
                         file=sys.stderr,
                     )
+                # T21: 调 on_task_done 回调(Team idle 通知)
+                await self._fire_done_callbacks(task_id)
 
         bt.handle = asyncio.create_task(runner())
         return task_id
@@ -152,6 +177,8 @@ class Manager:
             self._tasks[task_id] = bt
             if name:
                 self._by_name[name] = task_id
+                if self._name_reg is not None:
+                    self._name_reg.register(name, task_id)
 
         aggregator = asyncio.create_task(self._aggregate_events(events, bt))
 
@@ -187,7 +214,12 @@ class Manager:
     async def send_message(self, name: str, message: str) -> str:
         """给已完成的 Agent 续派任务。"""
         async with self._lock:
-            task_id = self._by_name.get(name)
+            # T21: 优先用 name_reg 寻址
+            task_id = None
+            if self._name_reg is not None:
+                task_id = self._name_reg.resolve(name)
+            if task_id is None:
+                task_id = self._by_name.get(name)
             if task_id is None:
                 raise TaskNotFound(f"no task with name: {name}")
 
@@ -225,6 +257,8 @@ class Manager:
                     self._done.put_nowait(task_id)
                 except asyncio.QueueFull:
                     pass
+                # T21: 调 on_task_done 回调
+                await self._fire_done_callbacks(task_id)
 
         bt.handle = asyncio.create_task(runner())
         return task_id

@@ -57,6 +57,7 @@ class BashTool:
 
         try:
             from Alincode.tool.ctx import resolve_path
+
             proc = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,

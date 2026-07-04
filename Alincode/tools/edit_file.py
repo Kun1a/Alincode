@@ -65,6 +65,7 @@ class EditFileTool:
             return Result(content="缺少必填参数: old_string", is_error=True)
 
         from Alincode.tool.ctx import resolve_path
+
         file_path = Path(resolve_path(path_str))
         if not file_path.is_file():
             return Result(content=f"文件不存在: {path_str}", is_error=True)
@@ -72,8 +73,14 @@ class EditFileTool:
         try:
             content = file_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as e:
-            hint = "文件似乎是二进制文件，无法编辑" if isinstance(e, UnicodeDecodeError) else ""
-            return Result(content=f"读取文件失败: {e}。{hint}".rstrip("。 ") + "。", is_error=True)
+            hint = (
+                "文件似乎是二进制文件，无法编辑"
+                if isinstance(e, UnicodeDecodeError)
+                else ""
+            )
+            return Result(
+                content=f"读取文件失败: {e}。{hint}".rstrip("。 ") + "。", is_error=True
+            )
 
         count = content.count(old_string)
         if count == 0:

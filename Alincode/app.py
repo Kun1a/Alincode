@@ -220,6 +220,13 @@ class AlinCodeApp(App):
         self.hook_engine = hook_engine
         self.task_mgr = task_mgr
 
+        # ── T26: Team 集成字段 ──
+        self.coordinator_mode: bool = False
+        self.lead_mail_event: asyncio.Event = asyncio.Event()
+        self.team_mgr: object | None = None
+        # /team 系列命令(由 driver wire 注入)
+        self._team_commands: list = []
+
         # 注入 hook_engine 到 runtime
         if hook_engine:
             self.runtime.hook_engine = hook_engine
@@ -314,6 +321,37 @@ class AlinCodeApp(App):
             except Exception:
                 pass
 
+    async def _poll_lead_mailboxes(self) -> None:
+        """T30b: 每秒轮询 Lead 邮箱,非空时注入 reminder 并唤醒 Lead。"""
+        while True:
+            try:
+                await asyncio.sleep(5.0)
+                if self.team_mgr is None:
+                    continue
+                results = await self.team_mgr.poll_lead_mailboxes()  # type: ignore[attr-defined]
+                if results:
+                    # 构造 reminder 注入
+                    parts: list[str] = []
+                    for lm in results:
+                        content_preview = (lm.content or "")[:200]
+                        parts.append(
+                            f"[team-update] {lm.team_name}: 来自 {lm.from_}"
+                            f"(type={lm.type}): {lm.summary}\n    {content_preview}"
+                        )
+                    reminder = "<team-update>\n" + "\n".join(parts) + "\n</team-update>"
+                    self.runtime.append_reminders([reminder])
+                    self.lead_mail_event.set()
+                    # Lead 空闲时合成 user 消息自动开新轮
+                    if not self._chatting:
+                        self._conv.add_user("[team-update] 队员发来新消息,请查看并继续协调。")
+                        self._chatting = True
+                        chat_log = self.query_one("#chat-log", ChatLog)
+                        self._start_agent(chat_log)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                pass
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
         yield ChatLog(id="chat-log")
@@ -362,6 +400,9 @@ class AlinCodeApp(App):
         # ── Task notification 消费 ──
         if hasattr(self, 'task_mgr'):
             asyncio.create_task(self._consume_task_done())
+        # ── T30b: Lead mailbox 轮询 ──
+        if hasattr(self, 'team_mgr') and self.team_mgr is not None:
+            asyncio.create_task(self._poll_lead_mailboxes())
 
     def _stream_widget(self) -> StreamText:
         return self.query_one("#stream-text", StreamText)
@@ -397,6 +438,9 @@ class AlinCodeApp(App):
             Mode.BYPASS: "BYPASS",
         }
         label = mode_labels.get(self._mode, str(self._mode.value))
+        # ── T26: Coordinator 标签 ──
+        if self.coordinator_mode:
+            label += " [COORDINATOR]"
         parts = [f"[bold #ffaa00]{label}[/]"]
         parts.append(self._model)
         toks = []
@@ -625,10 +669,26 @@ class AlinCodeApp(App):
                 self._show_hooks(chat_log)
             return
 
+        # ── /team 系列命令(T27) ──
+        if user_text.startswith("/team ") or user_text == "/team":
+            for cmd in self._team_commands:
+                if user_text == cmd.name or user_text.startswith(cmd.name + " "):
+                    args = user_text[len(cmd.name):].strip()
+                    try:
+                        result = await cmd.handler(args)
+                        chat_log.append_info(result)
+                    except Exception as e:
+                        chat_log.append_error(f"/team 命令执行失败: {e}")
+                    return
+            chat_log.append_info(
+                "用法: /team list | /team info <name> | /team delete <name> [--force] | /team kill <member>"
+            )
+            return
+
         # 未知斜杠命令
         if user_text.startswith("/"):
             chat_log.append_info(
-                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /resume /remember /tools /clear /hooks"
+                f"未知命令: {user_text}，可用命令: /exit /plan /do /compact /resume /remember /tools /clear /hooks /team"
             )
             return
 

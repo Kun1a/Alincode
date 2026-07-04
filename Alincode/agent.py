@@ -227,7 +227,11 @@ class Agent:
                 )
                 await manage_context(in_)
 
-            reminder = ""
+            # ── T20: 队员邮箱 incoming-messages 注入 ──
+            from Alincode.team_mailbox import ingest_team_mailbox
+
+            _team_mail = await ingest_team_mailbox(self)
+            reminder = _team_mail or ""
             req = Request(
                 system=SystemBlocks(stable=stable, environment=env_block),
                 messages=conv.messages, model=self._model,
@@ -489,6 +493,13 @@ class Agent:
                     "mode": mode.value,
                     "prompt": last_msg.content if last_msg.role == "user" else "",
                 })
+
+            # ── T20: 队员邮箱 incoming-messages 注入 ──
+            from Alincode.team_mailbox import ingest_team_mailbox
+
+            _team_mail = await ingest_team_mailbox(self)
+            if _team_mail:
+                self.runtime.append_reminders([_team_mail])
 
             reminder = self._build_reminder(mode, iteration)
             req = Request(

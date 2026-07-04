@@ -57,6 +57,7 @@ class ReadFileTool:
             return Result(content="缺少必填参数: path", is_error=True)
 
         from Alincode.tool.ctx import resolve_path
+
         file_path = Path(resolve_path(path_str))
         if not file_path.exists():
             return Result(content=f"文件不存在: {path_str}", is_error=True)
@@ -71,7 +72,7 @@ class ReadFileTool:
             return Result(content=f"读取文件失败: {e}", is_error=True)
 
         lines = text.split("\n")
-        numbered = [f"{i+1:6d}\t{line}" for i, line in enumerate(lines)]
+        numbered = [f"{i + 1:6d}\t{line}" for i, line in enumerate(lines)]
 
         result = _truncate("\n".join(numbered), MAX_LINES, MAX_CHARS)
         return Result(content=result)
