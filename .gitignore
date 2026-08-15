@@ -21,3 +21,7 @@ venv/
 
 # git worktree 隔离工作区
 .worktrees/
+
+# 前端依赖与构建产物
+node_modules/
+webui/dist/
