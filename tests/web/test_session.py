@@ -1,0 +1,88 @@
+# tests/web/test_session.py
+"""WebSession：事件消费 + 审批闭环（FakeProvider 驱动真实 Agent 循环）。"""
+
+import asyncio
+
+import pytest
+
+from Alincode.bootstrap import AppContext
+from Alincode.config import AppConfig, ProviderConfig
+from Alincode.conversation import StreamEvent, ToolCall
+from Alincode.permission.engine import new_engine
+from Alincode.tools import Registry
+from Alincode.web.session import WebSession
+
+# 复用 tests/test_agent.py 的 Fake 设施
+from tests.test_agent import FakeProvider, FakeWriteTool
+
+
+def _ctx(tmp_path, provider, registry) -> AppContext:
+    engine, _ = new_engine(str(tmp_path))
+    return AppContext(
+        app_cfg=AppConfig(),
+        provider_cfg=ProviderConfig(name="fake", protocol="anthropic",
+                                    model="m", base_url="", api_key=""),
+        provider=provider, registry=registry, engine=engine,
+        instruction_text="", memory_text="", memory_manager=None,
+        workspace=str(tmp_path), catalog=None, hook_engine=None,
+        subagent_catalog=None, task_mgr=None, wt_mgr=None, team_mgr=None,
+        agent_tool=None, team_commands=[], mcp_mgr=None,
+    )
+
+
+async def _collect_until(ws: WebSession, stop_type: str, timeout=5.0) -> list[dict]:
+    got = []
+
+    async def _pump():
+        while True:
+            m = await ws.outbox.get()
+            got.append(m)
+            if m["type"] == stop_type:
+                return
+
+    await asyncio.wait_for(_pump(), timeout)
+    return got
+
+
+async def _next_of(ws: WebSession, want: str) -> dict:
+    while True:
+        m = await ws.outbox.get()
+        if m["type"] == want:
+            return m
+
+
+@pytest.mark.asyncio
+async def test_plain_text_turn(tmp_path):
+    provider = FakeProvider([[StreamEvent(text="你好！"), StreamEvent(done=True)]])
+    ws = WebSession(_ctx(tmp_path, provider, Registry()))
+    await ws.open()
+    await ws.send_user("在吗")
+    msgs = await _collect_until(ws, "turn.done")
+    types = [m["type"] for m in msgs]
+    assert "text.delta" in types and types[-1] == "turn.done"
+    assert not ws.busy
+
+
+@pytest.mark.asyncio
+async def test_approval_roundtrip_deny(tmp_path):
+    # 第一轮：模型要求调用写工具（DEFAULT 模式下写操作触发 ASK）；
+    # 第二轮：拒绝后模型收到错误结果并收尾。
+    provider = FakeProvider([
+        [StreamEvent(tool_calls=[ToolCall(id="t1", name="write_file", input='{"x":"1"}')])],
+        [StreamEvent(text="已取消"), StreamEvent(done=True)],
+    ])
+    registry = Registry()
+    registry.register(FakeWriteTool())
+    ws = WebSession(_ctx(tmp_path, provider, registry))
+    await ws.open()
+    await ws.send_user("写个文件")
+
+    req = await asyncio.wait_for(_next_of(ws, "approval.request"), 5.0)
+    assert req["tool_name"] == "write_file"
+    await ws.respond_approval(req["request_id"], "deny_once")
+
+    msgs = await _collect_until(ws, "turn.done")
+    resolved = [m for m in msgs if m["type"] == "approval.resolved"]
+    assert resolved and resolved[0]["outcome"] == "deny_once"
+    tool_ends = [m for m in msgs if m["type"] == "tool.end"]
+    assert tool_ends and tool_ends[0]["is_error"] is True

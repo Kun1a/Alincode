@@ -1,0 +1,179 @@
+# Alincode/web/session.py
+"""WebSession：单个浏览器会话 = 一个 SessionBundle + 事件流消费协程。
+
+与 TUI 的关系：消费的是同一个 Agent.run() 异步事件流，
+本类等价于 app.py 中 _start_agent/_consume_events/_approve 的 Web 形态。
+下行消息统一进 outbox 队列，由服务端单一 pump 协程发送，
+避免消费任务与请求处理并发写 socket。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+
+from Alincode.bootstrap import AppContext
+from Alincode.core_session import SessionBundle, create_session
+from Alincode.hook.event import Event as HookEvent
+from Alincode.permission import ApprovalRequest, Mode, Outcome
+from Alincode.prompts import SYSTEM_PROMPT
+from Alincode.web.protocol import project_event, project_messages
+
+OUTCOME_MAP = {
+    "allow_once": Outcome.ALLOW_ONCE,
+    "allow_forever": Outcome.ALLOW_FOREVER,
+    "deny_once": Outcome.DENY_ONCE,
+}
+
+
+class WebSession:
+    def __init__(self, ctx: AppContext) -> None:
+        self._ctx = ctx
+        self.bundle: SessionBundle = create_session(ctx)
+        self.outbox: asyncio.Queue[dict] = asyncio.Queue()
+        self._approvals: dict[str, ApprovalRequest] = {}
+        self._turn_task: asyncio.Task | None = None
+        self._cancel = asyncio.Event()
+        self._mode = Mode.DEFAULT
+        self.busy = False
+        self._closed = False
+
+    # ── 生命周期 ──────────────────────────────────────
+
+    async def open(self) -> None:
+        self.bundle.conv.add_system(SYSTEM_PROMPT)   # 对应 app.py on_mount 注入
+        await self._emit({
+            "type": "session.info",
+            "session_id": self.bundle.session_id,
+            "workspace": self._ctx.workspace,
+            "model": self._ctx.provider_cfg.model,
+            "mode": self._mode.value,
+        })
+        await self._dispatch(HookEvent.SESSION_START)
+
+    async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if self._turn_task and not self._turn_task.done():
+            self._cancel.set()
+            self._turn_task.cancel()
+        await self._dispatch(HookEvent.SESSION_END)
+        self.bundle.writer.close()
+
+    # ── 上行消息分发 ──────────────────────────────────
+
+    async def handle(self, data: dict) -> None:
+        t = data.get("type")
+        if t == "chat.send":
+            await self.send_user(str(data.get("text", "")))
+        elif t == "approval.respond":
+            await self.respond_approval(str(data.get("request_id", "")),
+                                        str(data.get("outcome", "")))
+        elif t == "turn.cancel":
+            self.cancel_turn()
+        elif t == "session.resume":
+            await self.resume(str(data.get("session_id", "")))
+        else:
+            await self._emit({"type": "notice", "text": f"未知消息类型: {t}"})
+
+    # ── 用户消息 → 新轮次（对应 app.py:695-718）──────
+
+    async def send_user(self, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        if self.busy:
+            await self._emit({"type": "notice", "text": "请等待当前回复完成..."})
+            return
+
+        if self._ctx.hook_engine is not None:
+            result = await self._ctx.hook_engine.dispatch(
+                HookEvent.USER_PROMPT_SUBMIT,
+                {"event": HookEvent.USER_PROMPT_SUBMIT.value,
+                 "session_id": self.bundle.session_id,
+                 "cwd": self._ctx.workspace, "mode": self._mode.value,
+                 "prompt": text},
+            )
+            if result.blocked:
+                await self._emit({"type": "notice",
+                                  "text": f"[hook {result.blocking_hook_id}] {result.reason}"})
+                return
+            self.bundle.runtime.append_reminders(result.injected_prompts)
+
+        self.bundle.conv.add_user(text)
+        await self._emit({"type": "history.append",
+                          "block": {"kind": "user", "content": text}})
+        self.busy = True
+        self._cancel = asyncio.Event()
+        self._turn_task = asyncio.create_task(self._run_turn())
+
+    async def _run_turn(self) -> None:
+        """消费 agent.run() 事件流——与 TUI 共享的同一事件源。"""
+        try:
+            async for ev in self.bundle.agent.run(
+                self.bundle.conv, mode=self._mode, cancel=self._cancel
+            ):
+                for msg in project_event(ev, self._approvals):
+                    await self._emit(msg)
+                if ev.err is not None or ev.done:
+                    break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:  # 兜底：循环本身崩溃也要告知前端
+            await self._emit({"type": "turn.error", "message": str(e)})
+        finally:
+            self.busy = False
+
+    # ── 审批回传（对应 app.py:536-540）────────────────
+
+    async def respond_approval(self, request_id: str, outcome: str) -> None:
+        req = self._approvals.pop(request_id, None)
+        if req is None or req.respond is None or req.respond.done():
+            return
+        result = OUTCOME_MAP.get(outcome, Outcome.DENY_ONCE)
+        # 先广播 resolved 再唤醒 agent 循环，保证前端先收到回执、后收到 tool.end
+        await self._emit({
+            "type": "approval.resolved", "request_id": request_id,
+            "outcome": result.value,
+        })
+        req.respond.set_result(result)
+
+    def cancel_turn(self) -> None:
+        self._cancel.set()
+
+    # ── 会话恢复（对应 app.py:753-839 的精简版）──────
+
+    async def resume(self, session_id: str) -> None:
+        if self.busy:
+            await self._emit({"type": "notice", "text": "请等待当前任务完成..."})
+            return
+        session_dir = os.path.join(self._ctx.workspace, ".Alincode", "sessions", session_id)
+        if not os.path.isdir(session_dir):
+            await self._emit({"type": "notice", "text": f"会话 {session_id} 不存在。"})
+            return
+        old = self.bundle
+        self.bundle = create_session(self._ctx, resume_id=session_id)
+        old.writer.close()
+        await self._emit({
+            "type": "history",
+            "session_id": session_id,
+            "blocks": project_messages(self.bundle.conv.messages),
+        })
+
+    # ── 内部 ──────────────────────────────────────────
+
+    async def _emit(self, msg: dict) -> None:
+        await self.outbox.put(msg)
+
+    async def _dispatch(self, event: HookEvent) -> None:
+        if self._ctx.hook_engine is None:
+            return
+        result = await self._ctx.hook_engine.dispatch(event, {
+            "event": event.value,
+            "session_id": self.bundle.session_id,
+            "cwd": self._ctx.workspace,
+            "mode": self._mode.value,
+        })
+        if event is HookEvent.SESSION_START:
+            self.bundle.runtime.append_reminders(result.injected_prompts)
