@@ -7,16 +7,7 @@ import logging
 import sys
 
 from Alincode.bootstrap import build_context, shutdown_context
-from Alincode.compact.state import (
-    ContentReplacementState,
-    RecoveryState,
-    AutoCompactTrackingState,
-    new_session_context,
-)
-from Alincode.config import effective_context_window
 from Alincode.hook.event import Event as HookEvent
-from Alincode.runtime import SessionRuntime
-from Alincode.session import Writer as SessionWriter
 from Alincode.app import AlinCodeApp
 
 
@@ -29,17 +20,11 @@ async def _amain(config_path: str | None = None) -> None:
 
     ctx = await build_context(config_path)
 
-    # ── 会话运行时（TUI 单会话）─────────────────────
-    runtime = SessionRuntime(
-        replacement=ContentReplacementState(),
-        recovery=RecoveryState(),
-        auto_tracking=AutoCompactTrackingState(),
-        session=new_session_context(ctx.workspace),
-        context_window=effective_context_window(ctx.provider_cfg),
-    )
+    # ── 会话级组件（TUI 单会话，与 Web 共享构造路径）──
+    from Alincode.core_session import create_session
 
-    # ── 会话写入器 ─────────────────────────────────
-    writer = SessionWriter(runtime.session.session_dir)
+    bundle = create_session(ctx)
+    runtime, writer = bundle.runtime, bundle.writer
 
     app = AlinCodeApp(
         provider=ctx.provider,
@@ -55,10 +40,10 @@ async def _amain(config_path: str | None = None) -> None:
         catalog=ctx.catalog,
         hook_engine=ctx.hook_engine,
         task_mgr=ctx.task_mgr,
+        agent=bundle.agent,
+        conv=bundle.conv,
     )
-    # 回填 parent 引用
-    ctx.agent_tool.set_parent(app.agent)
-    ctx.agent_tool.set_conv_getter(lambda: app._conv.messages)
+    # 注：agent_tool 的 parent/conv_getter 回填已由 create_session 完成
 
     # ── T28: 注入 team_mgr + 命令到 App ──
     app.team_mgr = ctx.team_mgr

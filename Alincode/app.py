@@ -203,7 +203,9 @@ class AlinCodeApp(App):
                  workspace: str = "",
                  catalog: "Catalog | None" = None,
                  hook_engine: "HookEngine | None" = None,
-                 task_mgr: "object | None" = None) -> None:
+                 task_mgr: "object | None" = None,
+                 agent: "Agent | None" = None,
+                 conv: "ConversationManager | None" = None) -> None:
         super().__init__()
         self._provider = provider
         self._model = model
@@ -231,23 +233,27 @@ class AlinCodeApp(App):
         if hook_engine:
             self.runtime.hook_engine = hook_engine
 
-        # Conversation 回调 → Writer
-        on_append = writer.append if writer else None
-        on_replace = self._on_conv_replace if writer else None
-        self._conv = ConversationManager(
-            on_append=on_append, on_replace=on_replace,
-        )
+        # Conversation 回调 → Writer（外部预构建 conv 时跳过，回调由 core_session 装配）
+        if conv is None:
+            on_append = writer.append if writer else None
+            on_replace = self._on_conv_replace if writer else None
+            conv = ConversationManager(
+                on_append=on_append, on_replace=on_replace,
+            )
+        self._conv = conv
 
-        self.agent = Agent(
-            provider=provider, registry=registry, model=model,
-            version="0.3.0", engine=self._engine,
-            runtime=self.runtime,
-            memory_manager=memory_manager,
-            instruction_text=instruction_text,
-            memory_text=memory_text,
-            skills_catalog=catalog,
-            hook_engine=hook_engine,
-        )
+        if agent is None:
+            agent = Agent(
+                provider=provider, registry=registry, model=model,
+                version="0.3.0", engine=self._engine,
+                runtime=self.runtime,
+                memory_manager=memory_manager,
+                instruction_text=instruction_text,
+                memory_text=memory_text,
+                skills_catalog=catalog,
+                hook_engine=hook_engine,
+            )
+        self.agent = agent
         self._chatting = False
         self._mode: Mode = Mode.DEFAULT
         self._stream_task: asyncio.Task | None = None
