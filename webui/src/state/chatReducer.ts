@@ -17,8 +17,10 @@ export const initialChatState: ChatState = {
   inputTokens: 0, outputTokens: 0, iter: 0,
 };
 
-/** 本地动作：发送消息瞬间置 busy（无需等后端回执）。 */
-export type LocalMsg = { type: "__local.busy"; busy: boolean };
+/** 本地动作：前端私有状态补丁（busy 乐观置位 / 断连标记），不经后端。 */
+export type LocalMsg =
+  | { type: "__local.busy"; busy: boolean }
+  | { type: "__local.connected"; connected: boolean };
 
 /** 把流式增量折叠进最后一个 assistant 块；否则新开一块。 */
 function pushDelta(blocks: Block[], delta: string): Block[] {
@@ -41,6 +43,9 @@ function seal(blocks: Block[]): Block[] {
 export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatState {
   if (msg.type === "__local.busy") {
     return { ...state, busy: msg.busy };
+  }
+  if (msg.type === "__local.connected") {
+    return { ...state, connected: msg.connected };
   }
   switch (msg.type) {
     case "session.info":
