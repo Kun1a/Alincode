@@ -1,6 +1,7 @@
 """Profile 密钥保护、配置摘要与预算行为测试。"""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -77,3 +78,30 @@ def test_dpapi_refuses_non_windows_instead_of_storing_plaintext(monkeypatch):
 
     with pytest.raises(RuntimeError, match="仅支持 Windows"):
         secrets.protect("test-api-key")
+
+
+def test_profile_service_survives_windows_atomic_replace_failure(tmp_path, monkeypatch):
+    original_replace = Path.replace
+
+    def fail_for_temporary_file(path: Path, target: Path):
+        if path.suffix == ".tmp":
+            raise OSError(17, "cross-device move", None, 17)
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_for_temporary_file)
+    store = ProfileStore(tmp_path / "profiles")
+    profile = store.create("Alin", "correct-password")
+    service = ProfileService(store)
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+
+    service.save_provider(
+        profile.id, protocol="openai", model="deepseek-chat",
+        base_url="https://api.deepseek.com", api_key="sk-test-secret",
+    )
+    service.set_budget(profile.id, 100)
+    service.set_workspace(profile.id, workspace)
+
+    assert service.provider_config(profile.id).model == "deepseek-chat"
+    assert service.budget_status(profile.id)["budget"] == 100
+    assert service.workspace(profile.id) == str(workspace.resolve())

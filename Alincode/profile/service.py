@@ -101,9 +101,7 @@ class ProfileService:
 
     @staticmethod
     def _write_json(path: Path, data: dict) -> None:
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        temporary.replace(path)
+        ProfileStore._write_json(path, data)
 
 
 def _mask_key(api_key: str) -> str:
