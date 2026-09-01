@@ -131,7 +131,7 @@ git commit -m "feat: add chat environment panel"
 - 修改：`webui/src/components/MessageList.tsx`
 - 修改：`webui/src/components/Composer.tsx`
 
-- [ ] **步骤 1：为左栏传入 Profile 并渲染已有品牌资源**
+- [x] **步骤 1：为左栏传入 Profile 并渲染已有品牌资源**
 
 调整 `Sidebar` 签名：
 
@@ -141,11 +141,11 @@ export function Sidebar({ profile }: { profile: Profile }) { /* ... */ }
 
 在新建会话按钮前使用 `/alincode-a-mark.png`、`AlinCode` 与「你的本地 Coding Agent」；在底部显示 `profile.name` 和「仅保存在这台设备」。历史列表仍只调用现有的 `resumeSession`。
 
-- [ ] **步骤 2：将标题和状态分层**
+- [x] **步骤 2：将标题和状态分层**
 
 标题显示 `state.sessionId ? "当前对话" : "新建对话"` 与项目目录末段；`StatusBar` 保留连接、轮次、运行中和预算耗尽状态，但不再显示冗长会话 ID。
 
-- [ ] **步骤 3：为消息和输入添加不改变行为的语义结构**
+- [x] **步骤 3：为消息和输入添加不改变行为的语义结构**
 
 `MessageList` 为用户、助手、工具、审批和提示保留现有组件及事件，只增加 `.message-row`/`.message-meta` 包装。`Composer` 保留 `sendText`、Enter 发送、Shift+Enter 换行、取消逻辑，只增加加号和圆形发送按钮的结构与可访问标签。
 
@@ -155,7 +155,7 @@ export function Sidebar({ profile }: { profile: Profile }) { /* ... */ }
 
 手工验证：新建会话、切换历史、发送普通消息、Agent 运行时取消、打开与关闭设置均按原有行为工作。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add webui/src/components/Sidebar.tsx webui/src/components/ChatView.tsx webui/src/components/StatusBar.tsx webui/src/components/MessageList.tsx webui/src/components/Composer.tsx
@@ -168,7 +168,7 @@ git commit -m "feat: restructure desktop chat workspace"
 - 修改：`webui/src/styles.css`
 - 验证：`docs/superpowers/plans/2026-09-01-windows-desktop-agent-checklist.md`
 
-- [ ] **步骤 1：定义聊天页设计令牌**
+- [x] **步骤 1：定义聊天页设计令牌**
 
 在保留登录/设置通用变量兼容性的前提下，增加深海蓝聊天令牌：
 
@@ -181,11 +181,11 @@ git commit -m "feat: restructure desktop chat workspace"
 --chat-aqua: #67e2d4;
 ```
 
-- [ ] **步骤 2：实现桌面三栏与消息视觉层级**
+- [x] **步骤 2：实现桌面三栏与消息视觉层级**
 
 `.desktop-shell` 使用 `grid-template-columns: 268px minmax(500px, 1fr) 306px`。中栏最大化阅读宽度；左栏和环境栏使用独立滚动。用户消息使用低饱和蓝色气泡，助手文字不使用气泡，工具与审批沿用可展开卡片语义。
 
-- [ ] **步骤 3：实现窄窗口规则与无障碍焦点**
+- [x] **步骤 3：实现窄窗口规则与无障碍焦点**
 
 当窗口小于 `1120px` 时压缩两侧栏宽；当小于 `900px` 时隐藏右侧环境栏，不隐藏历史栏。所有按钮和输入框保留可见键盘焦点；不增加持续动画。
 
@@ -195,7 +195,7 @@ git commit -m "feat: restructure desktop chat workspace"
 
 预期：构建产物可被桌面窗口加载；使用已有 Profile 完成一次真实聊天请求，右栏用量变化且左栏可恢复该会话。
 
-- [ ] **步骤 5：运行全量回归**
+- [x] **步骤 5：运行全量回归**
 
 运行：`uv run pytest`（项目根目录）。
 
@@ -205,7 +205,7 @@ git commit -m "feat: restructure desktop chat workspace"
 
 在 tmux 启动 AlinCode，输入一个需要读取工作目录的真实编程请求，观察工具调用和回复。仅将有实际证据的既有 checklist 条目改为 `[x]`，记录命令或观察结果。
 
-- [ ] **步骤 7：提交**
+- [x] **步骤 7：提交**
 
 ```bash
 git add webui/src/styles.css docs/superpowers/plans/2026-09-01-windows-desktop-agent-checklist.md
