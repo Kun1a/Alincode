@@ -34,7 +34,7 @@ export function SettingsDialog({ onClose, onLock }: Props) {
       await json("/api/profile/workspace", { method: "PUT", body: JSON.stringify({ path: workspace }) });
       await json("/api/profile/budget", { method: "PUT", body: JSON.stringify({ budget: Number(budget) }) });
       setProvider(current => ({ ...current, api_key: "" }));
-      setMessage("已保存。本地用量不代表供应商账户余额。");
+      location.reload(); // Provider 与工作目录变更后创建新的 Profile 专属 Agent 上下文。
     } catch (error) { setMessage(error instanceof Error ? error.message : "保存失败"); }
   };
 
