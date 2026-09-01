@@ -15,6 +15,7 @@ from Alincode.bootstrap import AppContext, build_context, shutdown_context
 from Alincode.session.list import list_sessions
 from Alincode.session.load import load_session
 from Alincode.profile.store import ProfileStore
+from Alincode.profile.service import ProfileService
 from Alincode.web.auth import LocalAuth
 from Alincode.web.protocol import project_messages
 from Alincode.web.session import WebSession
@@ -33,6 +34,7 @@ def create_app(
 
     if (auth is None) != (profile_store is None):
         raise ValueError("桌面认证需要同时提供 auth 和 profile_store")
+    profile_service = ProfileService(profile_store) if profile_store else None
 
     def _local_session(request: Request) -> str:
         session_id = request.cookies.get("alincode_session")
@@ -125,6 +127,56 @@ def create_app(
         session_id, _ = _unlocked_profile(request)
         assert auth is not None
         auth.lock(session_id)
+
+    @app.put("/api/profile/provider")
+    async def save_provider(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Provider 配置格式错误")
+        fields = ("protocol", "model", "base_url", "api_key")
+        if any(not isinstance(data.get(field), str) for field in fields):
+            raise HTTPException(status_code=400, detail="Provider 配置字段格式错误")
+        if not all(data[field].strip() for field in ("protocol", "model", "api_key")):
+            raise HTTPException(status_code=400, detail="Provider、模型和 API Key 不能为空")
+        profile_service.save_provider(
+            profile_id,
+            protocol=data["protocol"].strip(),
+            model=data["model"].strip(),
+            base_url=data["base_url"].strip(),
+            api_key=data["api_key"].strip(),
+        )
+        return profile_service.provider_summary(profile_id)
+
+    @app.get("/api/profile/provider")
+    async def provider_summary(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        try:
+            return profile_service.provider_summary(profile_id)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="尚未配置 Provider") from error
+
+    @app.put("/api/profile/budget")
+    async def set_budget(request: Request) -> dict[str, int | bool]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        data = await request.json()
+        budget = data.get("budget") if isinstance(data, dict) else None
+        if not isinstance(budget, int) or isinstance(budget, bool):
+            raise HTTPException(status_code=400, detail="预算必须是非负整数")
+        try:
+            profile_service.set_budget(profile_id, budget)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return profile_service.budget_status(profile_id)
+
+    @app.get("/api/profile/budget")
+    async def budget_status(request: Request) -> dict[str, int | bool]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        return profile_service.budget_status(profile_id)
 
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:

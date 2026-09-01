@@ -96,3 +96,16 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
 
     assert client.get("/api/profiles").json() == [profile]
     assert client.post("/api/auth/exchange", json={"token": "launch-token"}).status_code == 401
+
+    saved_provider = client.put("/api/profile/provider", json={
+        "protocol": "anthropic", "model": "claude-test", "base_url": "https://api.example.com",
+        "api_key": "sk-secret1234",
+    })
+    assert saved_provider.status_code == 200
+    assert saved_provider.json() == {
+        "protocol": "anthropic", "model": "claude-test", "base_url": "https://api.example.com",
+        "api_key": "sk-••••1234",
+    }
+    assert "secret" not in client.get("/api/profile/provider").text
+
+    assert client.put("/api/profile/budget", json={"budget": 1000}).json()["budget"] == 1000
