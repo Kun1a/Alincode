@@ -32,6 +32,12 @@ def test_provider_key_is_protected_and_summary_is_masked(tmp_path):
         path.read_text(encoding="utf-8", errors="ignore")
         for path in tmp_path.rglob("*.json")
     )
+    config = service.provider_config(profile.id)
+    assert config.name == profile.id
+    assert config.protocol == "openai"
+    assert config.model == "deepseek-chat"
+    assert config.base_url == "https://api.deepseek.com"
+    assert config.api_key == "sk-test-secret-9nF2"
 
 
 def test_usage_reaches_budget_and_blocks_new_turns(tmp_path):

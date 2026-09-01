@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from Alincode.config import ProviderConfig
 from Alincode.profile.secrets import protect, unprotect
 from Alincode.profile.store import ProfileStore
 
@@ -33,6 +34,17 @@ class ProfileService:
 
     def provider_key(self, profile_id: str) -> str:
         return unprotect((self._store.profile_dir(profile_id) / "api_key.bin").read_bytes())
+
+    def provider_config(self, profile_id: str) -> ProviderConfig:
+        """仅在内存中还原当前 Profile 的 Provider 配置。"""
+        config = self._read_json(self._store.profile_dir(profile_id) / "provider.json")
+        return ProviderConfig(
+            name=profile_id,
+            protocol=config["protocol"],
+            model=config["model"],
+            base_url=config["base_url"],
+            api_key=self.provider_key(profile_id),
+        )
 
     def set_budget(self, profile_id: str, budget: int) -> None:
         if budget < 0:
