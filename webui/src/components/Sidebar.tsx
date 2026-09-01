@@ -5,7 +5,7 @@ import type { Profile } from "./ProfileGate";
 interface Session { id: string; title: string; modified_at: string; }
 
 export function Sidebar({ profile }: { profile: Profile }) {
-  const { state, resumeSession } = useChat();
+  const { state, resumeSession, newSession } = useChat();
   const [sessions, setSessions] = useState<Session[]>([]);
 
   useEffect(() => {
@@ -19,7 +19,7 @@ export function Sidebar({ profile }: { profile: Profile }) {
       <img src="/alincode-a-mark.png" alt="AlinCode" />
       <div><strong>AlinCode</strong><span>你的本地 Coding Agent</span></div>
     </header>
-    <button className="new-chat" onClick={() => location.reload()}>＋ 新建对话</button>
+    <button className="new-chat" onClick={newSession} disabled={state.busy}>＋ 新建对话</button>
     <p className="sidebar-label">对话历史</p>
     <div className="session-list">
       {sessions.length ? sessions.map((session) => <button key={session.id}

@@ -56,14 +56,19 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
   }
   switch (msg.type) {
     case "session.info":
+      { const isNewSession = Boolean(state.sessionId && state.sessionId !== msg.session_id);
       return {
         ...state,
         connected: true,
         sessionId: msg.session_id,
+        blocks: isNewSession ? [] : state.blocks,
+        inputTokens: isNewSession ? 0 : state.inputTokens,
+        outputTokens: isNewSession ? 0 : state.outputTokens,
+        iter: isNewSession ? 0 : state.iter,
         workspace: msg.workspace,
         model: msg.model,
         mode: msg.mode,
-      };
+      }; }
     case "history":
       return { ...state, blocks: msg.blocks, busy: false, sessionId: msg.session_id };
     case "history.append":

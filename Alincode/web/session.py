@@ -86,6 +86,8 @@ class WebSession:
             self.cancel_turn()
         elif t == "session.resume":
             await self.resume(str(data.get("session_id", "")))
+        elif t == "session.new":
+            await self.new_session()
         elif t == "mode.set":
             await self.set_mode(str(data.get("mode", "")))
         else:
@@ -190,6 +192,23 @@ class WebSession:
             "model": self._ctx.provider_cfg.model,
             "mode": self._mode.value,
         })
+
+    async def new_session(self) -> None:
+        if self.busy:
+            await self._emit({"type": "notice", "text": "请等待当前任务完成后再新建对话。"})
+            return
+        old = self.bundle
+        self.bundle = create_session(self._ctx, session_root=self._session_root)
+        old.writer.close()
+        self.bundle.conv.add_system(SYSTEM_PROMPT)
+        await self._emit({
+            "type": "session.info",
+            "session_id": self.bundle.session_id,
+            "workspace": self._ctx.workspace,
+            "model": self._ctx.provider_cfg.model,
+            "mode": self._mode.value,
+        })
+        await self._emit({"type": "history", "session_id": self.bundle.session_id, "blocks": []})
 
     # ── 会话恢复（对应 app.py:753-839 的精简版）──────
 

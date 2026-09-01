@@ -138,3 +138,19 @@ async def test_invalid_mode_keeps_the_current_mode(tmp_path):
 
     assert (await _next_of(ws, "notice"))["text"] == "不支持的执行模式。"
     assert ws._mode.value == "default"
+
+
+@pytest.mark.asyncio
+async def test_new_session_keeps_the_unlocked_profile_context(tmp_path):
+    ws = WebSession(_ctx(tmp_path, FakeProvider([]), Registry()))
+    await ws.open()
+    original = await _next_of(ws, "session.info")
+
+    await ws.handle({"type": "session.new"})
+
+    info = await asyncio.wait_for(ws.outbox.get(), 1.0)
+    assert info["type"] == "session.info"
+    history = await _next_of(ws, "history")
+    assert info["session_id"] != original["session_id"]
+    assert info["workspace"] == str(tmp_path)
+    assert history == {"type": "history", "session_id": info["session_id"], "blocks": []}
