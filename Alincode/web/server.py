@@ -178,6 +178,26 @@ def create_app(
         assert profile_service is not None
         return profile_service.budget_status(profile_id)
 
+    @app.put("/api/profile/workspace")
+    async def set_workspace(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        data = await request.json()
+        workspace = data.get("path") if isinstance(data, dict) else None
+        if not isinstance(workspace, str) or not workspace.strip():
+            raise HTTPException(status_code=400, detail="项目目录不能为空")
+        try:
+            profile_service.set_workspace(profile_id, workspace)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"path": profile_service.workspace(profile_id) or ""}
+
+    @app.get("/api/profile/workspace")
+    async def workspace(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        return {"path": profile_service.workspace(profile_id) or ""}
+
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:
         return [

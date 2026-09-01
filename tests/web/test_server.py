@@ -109,3 +109,10 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
     assert "secret" not in client.get("/api/profile/provider").text
 
     assert client.put("/api/profile/budget", json={"budget": 1000}).json()["budget"] == 1000
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    assert client.put("/api/profile/workspace", json={"path": str(workspace)}).json() == {
+        "path": str(workspace.resolve()),
+    }
+    assert client.get("/api/profile/workspace").json() == {"path": str(workspace.resolve())}
