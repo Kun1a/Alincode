@@ -9,4 +9,9 @@ describe("desktop chat stylesheet", () => {
     expect(stylesheet).toContain("grid-template-columns: 268px minmax(500px, 1fr) 306px");
     expect(stylesheet).toContain("@media (max-width: 900px)");
   });
+
+  it("keeps history rows compact instead of stretching them across the sidebar", () => {
+    expect(stylesheet).toContain("align-content: start");
+    expect(stylesheet).toContain("grid-auto-rows: min-content");
+  });
 });

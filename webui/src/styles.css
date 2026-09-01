@@ -376,8 +376,8 @@ button:disabled {
 
 .new-chat:hover:not(:disabled) { color: #f4fcff; background: rgba(28, 103, 141, .35); border-color: var(--chat-accent); }
 .sidebar-label { margin: 0; padding: 11px 22px 8px; color: var(--chat-muted); font-size: 11px; letter-spacing: .12em; text-transform: none; }
-.session-list { flex: 1; padding: 0 10px; gap: 2px; }
-.session-item { padding: 10px 11px; color: #b9cad6; border-radius: 8px; font-family: inherit; font-size: 13px; }
+.session-list { flex: 1; padding: 0 10px; gap: 2px; align-content: start; grid-auto-rows: min-content; }
+.session-item { min-height: 0; padding: 10px 11px; color: #b9cad6; border-radius: 8px; font-family: inherit; font-size: 13px; }
 .session-item:hover:not(:disabled) { color: var(--chat-text); background: rgba(57, 104, 130, .23); }
 .session-item.active { color: #edfaff; background: linear-gradient(90deg, rgba(33, 111, 148, .62), rgba(21, 65, 89, .4)); }
 .empty-history { padding: 12px; color: var(--chat-faint); font-size: 12px; }
@@ -427,6 +427,9 @@ button:disabled {
 .chat-topbar strong { color: var(--chat-text); font-size: 15px; font-weight: 650; }
 .chat-topbar span { overflow: hidden; max-width: 360px; margin-top: 3px; color: var(--chat-faint); font-size: 11px; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
 .chat-topbar button { padding: 8px 12px; color: #c5d8e4; background: rgba(255, 255, 255, .025); border-color: var(--chat-line); border-radius: 8px; font-family: inherit; font-size: 12px; }
+.chat-actions { display: flex; align-items: center; gap: 9px; }
+.chat-actions label { display: flex; align-items: center; gap: 7px; color: var(--chat-muted); font-size: 11px; }
+.chat-actions select { min-height: 32px; max-width: 112px; padding: 0 8px; color: #dcecf5; background: rgba(255, 255, 255, .025); border: 1px solid var(--chat-line); border-radius: 8px; font: inherit; font-size: 11px; }
 
 .status-bar { min-height: 32px; gap: 14px; padding: 7px 28px; color: var(--chat-muted); border-color: var(--chat-line); font-family: "Cascadia Mono", Consolas, monospace; font-size: 11px; }
 .status-bar .busy { color: #f6c85d; }
