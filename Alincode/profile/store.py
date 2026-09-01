@@ -99,5 +99,12 @@ class ProfileStore:
     @staticmethod
     def _write_json(path: Path, data: dict) -> None:
         temp_path = path.with_suffix(".tmp")
-        temp_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
-        temp_path.replace(path)
+        content = json.dumps(data, ensure_ascii=False)
+        temp_path.write_text(content, encoding="utf-8")
+        try:
+            temp_path.replace(path)
+        except OSError as error:
+            if error.winerror != 17:
+                raise
+            # EFS 加密目录可能拒绝同目录的原子替换，回退为直接写入目标文件。
+            path.write_text(content, encoding="utf-8")
