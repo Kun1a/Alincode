@@ -9,6 +9,10 @@ import sys
 
 
 def main() -> None:
+    if "--desktop" in sys.argv:
+        from Alincode.desktop import run_desktop
+        run_desktop()
+        return
     if "--web" in sys.argv:
         argv = [a for a in sys.argv[1:] if a != "--web"]
         host, port, config_path = "127.0.0.1", 8765, None

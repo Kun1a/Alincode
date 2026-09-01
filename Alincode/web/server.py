@@ -24,13 +24,13 @@ WEBUI_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 
 
 def create_app(
-    ctx: AppContext,
+    ctx: AppContext | None,
     *,
     auth: LocalAuth | None = None,
     profile_store: ProfileStore | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AlinCode WebUI")
-    sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions")
+    sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions") if ctx else None
 
     if (auth is None) != (profile_store is None):
         raise ValueError("桌面认证需要同时提供 auth 和 profile_store")
@@ -56,6 +56,7 @@ def create_app(
 
     def _history_dir(request: Request) -> str:
         if auth is None:
+            assert sessions_dir is not None
             return sessions_dir
         _, profile_id = _unlocked_profile(request)
         assert profile_store is not None
@@ -244,6 +245,9 @@ def create_app(
                 return
             assert profile_store is not None
             session_root = str(profile_store.sessions_dir(profile_id))
+        if session_ctx is None:
+            await ws.close(code=1011)
+            return
         assert session_ctx is not None
         await ws.accept()
         session = WebSession(
