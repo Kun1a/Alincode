@@ -9,36 +9,134 @@ import os
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
 from Alincode.bootstrap import AppContext, build_context, shutdown_context
 from Alincode.session.list import list_sessions
 from Alincode.session.load import load_session
+from Alincode.profile.store import ProfileStore
+from Alincode.web.auth import LocalAuth
 from Alincode.web.protocol import project_messages
 from Alincode.web.session import WebSession
 
 WEBUI_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
 
 
-def create_app(ctx: AppContext) -> FastAPI:
+def create_app(
+    ctx: AppContext,
+    *,
+    auth: LocalAuth | None = None,
+    profile_store: ProfileStore | None = None,
+) -> FastAPI:
     app = FastAPI(title="AlinCode WebUI")
     sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions")
+
+    if (auth is None) != (profile_store is None):
+        raise ValueError("桌面认证需要同时提供 auth 和 profile_store")
+
+    def _local_session(request: Request) -> str:
+        session_id = request.cookies.get("alincode_session")
+        if auth is None or not session_id or not auth.has_session(session_id):
+            raise HTTPException(status_code=401, detail="请先完成本机启动验证")
+        return session_id
+
+    def _unlocked_profile(request: Request) -> tuple[str, str]:
+        session_id = _local_session(request)
+        profile_id = auth.profile_for(session_id) if auth else None
+        if profile_id is None:
+            raise HTTPException(status_code=403, detail="请先解锁 Profile")
+        return session_id, profile_id
+
+    def _history_dir(request: Request) -> str:
+        if auth is None:
+            return sessions_dir
+        _, profile_id = _unlocked_profile(request)
+        assert profile_store is not None
+        return str(profile_store.sessions_dir(profile_id))
 
     @app.get("/api/health")
     async def health() -> dict:
         return {"ok": True}
 
+    @app.post("/api/auth/exchange", status_code=204)
+    async def exchange_launch_token(request: Request, response: Response) -> None:
+        if auth is None:
+            raise HTTPException(status_code=404, detail="当前入口不需要本机认证")
+        data = await request.json()
+        token = data.get("token") if isinstance(data, dict) else None
+        if not isinstance(token, str):
+            raise HTTPException(status_code=400, detail="启动令牌格式错误")
+        session_id = auth.exchange_launch_token(token)
+        if session_id is None:
+            raise HTTPException(status_code=401, detail="启动令牌无效或已使用")
+        response.set_cookie(
+            "alincode_session", session_id, httponly=True, samesite="strict",
+        )
+
+    @app.get("/api/profiles")
+    async def profiles(request: Request) -> list[dict[str, str]]:
+        _local_session(request)
+        assert profile_store is not None
+        return [_profile_data(profile) for profile in profile_store.list_profiles()]
+
+    @app.post("/api/profiles", status_code=201)
+    async def create_profile(request: Request) -> dict[str, str]:
+        session_id = _local_session(request)
+        assert profile_store is not None and auth is not None
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=400, detail="Profile 数据格式错误")
+        name = data.get("name")
+        password = data.get("password")
+        if not isinstance(name, str) or not isinstance(password, str):
+            raise HTTPException(status_code=400, detail="Profile 名称和密码不能为空")
+        try:
+            profile = profile_store.create(name, password)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        auth.unlock(session_id, profile.id)
+        return _profile_data(profile)
+
+    @app.get("/api/profile")
+    async def current_profile(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_store is not None
+        return _profile_data(profile_store.get(profile_id))
+
+    @app.post("/api/profiles/{profile_id}/unlock")
+    async def unlock_profile(profile_id: str, request: Request) -> dict[str, str]:
+        session_id = _local_session(request)
+        assert profile_store is not None and auth is not None
+        data = await request.json()
+        password = data.get("password") if isinstance(data, dict) else None
+        if not isinstance(password, str):
+            raise HTTPException(status_code=400, detail="Profile 密码不能为空")
+        try:
+            matched = profile_store.verify_password(profile_id, password)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Profile 不存在") from error
+        if not matched:
+            raise HTTPException(status_code=401, detail="Profile 密码错误")
+        auth.unlock(session_id, profile_id)
+        return _profile_data(profile_store.get(profile_id))
+
+    @app.post("/api/profile/lock", status_code=204)
+    async def lock_profile(request: Request) -> None:
+        session_id, _ = _unlocked_profile(request)
+        assert auth is not None
+        auth.lock(session_id)
+
     @app.get("/api/sessions")
-    async def sessions() -> list[dict]:
+    async def sessions(request: Request) -> list[dict]:
         return [
             {"id": s.id, "title": s.title, "model": s.model, "size": s.size,
              "modified_at": s.modified_at.isoformat()}
-            for s in list_sessions(sessions_dir)
+            for s in list_sessions(_history_dir(request))
         ]
 
     @app.get("/api/sessions/{session_id}/messages")
-    async def session_messages(session_id: str) -> list[dict]:
-        sdir = os.path.join(sessions_dir, session_id)
+    async def session_messages(session_id: str, request: Request) -> list[dict]:
+        sdir = os.path.join(_history_dir(request), session_id)
         if not os.path.isdir(sdir):
             return []
         return project_messages(load_session(sdir))
@@ -80,6 +178,10 @@ def create_app(ctx: AppContext) -> FastAPI:
                     "或使用 npm run dev 走 Vite 开发服务器（代理已配置）。")
 
     return app
+
+
+def _profile_data(profile) -> dict[str, str]:
+    return {"id": profile.id, "name": profile.name}
 
 
 def serve(config_path: str | None = None,

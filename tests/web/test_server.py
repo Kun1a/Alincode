@@ -9,6 +9,8 @@ from Alincode.bootstrap import AppContext
 from Alincode.config import AppConfig, ProviderConfig
 from Alincode.conversation import StreamEvent
 from Alincode.tools import Registry
+from Alincode.profile.store import ProfileStore
+from Alincode.web.auth import LocalAuth
 from Alincode.web.server import create_app
 
 from tests.test_agent import FakeProvider
@@ -58,3 +60,39 @@ def test_ws_full_turn(tmp_path):
             if m["type"] == "turn.done":
                 break
         assert "text.delta" in got
+
+
+def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    auth = LocalAuth("launch-token")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=auth, profile_store=store,
+    ))
+
+    assert client.get("/api/profiles").status_code == 401
+    assert client.post("/api/auth/exchange", json={"token": "wrong"}).status_code == 401
+
+    assert client.post("/api/auth/exchange", json={"token": "launch-token"}).status_code == 204
+    created = client.post("/api/profiles", json={"name": "Alin", "password": "secret"})
+    assert created.status_code == 201
+    profile = created.json()
+    assert profile["name"] == "Alin"
+    assert client.get("/api/profile").json() == profile
+
+    history_dir = store.sessions_dir(profile["id"]) / "20260901-000000-ab"
+    history_dir.mkdir()
+    (history_dir / "conversation.jsonl").write_text(
+        json.dumps({"role": "user", "content": "私有历史", "ts": 1}) + "\n",
+        encoding="utf-8",
+    )
+    assert client.get("/api/sessions").json()[0]["id"] == "20260901-000000-ab"
+
+    assert client.post("/api/profile/lock").status_code == 204
+    assert client.get("/api/profile").status_code == 403
+    assert client.get("/api/sessions").status_code == 403
+    assert client.post(
+        f"/api/profiles/{profile['id']}/unlock", json={"password": "secret"},
+    ).json() == profile
+
+    assert client.get("/api/profiles").json() == [profile]
+    assert client.post("/api/auth/exchange", json={"token": "launch-token"}).status_code == 401

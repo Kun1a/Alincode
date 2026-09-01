@@ -28,6 +28,10 @@ class LocalAuth:
         self._sessions[session_id] = profile_id
         return True
 
+    def has_session(self, session_id: str) -> bool:
+        """确认本机浏览器会话仍有效。"""
+        return session_id in self._sessions
+
     def profile_for(self, session_id: str) -> str | None:
         """返回会话已解锁的 Profile；无效或锁定状态均为 None。"""
         return self._sessions.get(session_id)

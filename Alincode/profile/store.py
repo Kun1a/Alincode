@@ -44,6 +44,23 @@ class ProfileStore:
         """返回 Profile 专属的会话目录。"""
         return self._profile_dir(profile_id) / "sessions"
 
+    def list_profiles(self) -> list[Profile]:
+        """返回本机已创建的 Profile，不包含密码校验数据。"""
+        if not self._root.is_dir():
+            return []
+        profiles = []
+        for path in self._root.iterdir():
+            profile_path = path / "profile.json"
+            if profile_path.is_file():
+                data = self._read_json(profile_path)
+                profiles.append(Profile(id=data["id"], name=data["name"]))
+        return sorted(profiles, key=lambda profile: profile.name.casefold())
+
+    def get(self, profile_id: str) -> Profile:
+        """读取一个 Profile 的可展示信息。"""
+        data = self._read_json(self.profile_path(profile_id))
+        return Profile(id=data["id"], name=data["name"])
+
     def profile_path(self, profile_id: str) -> Path:
         """返回 Profile 元数据文件路径。"""
         return self._profile_dir(profile_id) / "profile.json"
