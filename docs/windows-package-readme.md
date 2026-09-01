@@ -22,7 +22,7 @@
 
 可在该目录放置以下文件：
 
-- `ALINCODE.md`：项目指令文件。Agent 会在每个新会话加载它；支持使用 `@include 相对文件名` 引入同目录中的其他 Markdown 文件。
+- `ALINCODE.md`：项目指令文件。重新打开 AlinCode 后会加载它；支持使用 `@include 相对文件名` 引入同目录中的其他 Markdown 文件。
 - `.Alincode/ALINCODE.md`：项目内部的补充指令文件。
 - `.Alincode/skills/<技能名>/SKILL.md`：项目级 Skill。添加或修改后，下一轮对话会自动重新扫描。
 
