@@ -74,10 +74,12 @@ async def build_context(
     provider_override: ProviderConfig | None = None,
 ) -> AppContext:
     """执行全部共享装配，返回 AppContext。主体逻辑搬自 driver._amain，语义不变。"""
-    config_path = resolve_config_path(config_path)
-
-    app_cfg = ConfigLoader.load(config_path)
-    if not app_cfg.providers:
+    if config_path is None and provider_override is not None:
+        app_cfg = AppConfig()
+    else:
+        config_path = resolve_config_path(config_path)
+        app_cfg = ConfigLoader.load(config_path)
+    if not app_cfg.providers and provider_override is None:
         print("错误: 配置文件中没有有效的 provider")
         raise SystemExit(1)
 

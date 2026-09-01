@@ -4,7 +4,8 @@
 import os
 import pytest
 
-from Alincode.bootstrap import build_context, resolve_config_path
+from Alincode import bootstrap
+from Alincode.bootstrap import build_context, resolve_config_path, shutdown_context
 from Alincode.config import ProviderConfig
 
 
@@ -70,3 +71,20 @@ async def test_build_context_accepts_desktop_workspace_and_provider_override(tmp
 
     assert ctx.workspace == str(workspace.resolve())
     assert ctx.provider_cfg is override
+
+
+@pytest.mark.asyncio
+async def test_desktop_provider_override_does_not_require_a_yaml_file(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(bootstrap, "DEFAULT_CONFIG_PATHS", [])
+    override = ProviderConfig(
+        name="desktop", protocol="openai", model="desktop-model",
+        base_url="https://api.example.test", api_key="desktop-key",
+    )
+
+    ctx = await build_context(workspace=str(workspace), provider_override=override)
+
+    assert ctx.workspace == str(workspace.resolve())
+    assert ctx.provider_cfg is override
+    await shutdown_context(ctx)
