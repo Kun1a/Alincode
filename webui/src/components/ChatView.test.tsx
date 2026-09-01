@@ -13,4 +13,16 @@ describe("ChatView", () => {
 
     expect(html).toContain("当前环境");
   });
+
+  it("shows the product brand and the unlocked Profile in the sidebar", () => {
+    const html = renderToStaticMarkup(
+      <ChatProvider>
+        <ChatView profile={{ id: "profile-a", name: "Alin" }} onLock={() => undefined} />
+      </ChatProvider>,
+    );
+
+    expect(html).toContain("AlinCode");
+    expect(html).toContain("你的本地 Coding Agent");
+    expect(html).toContain("仅保存在这台设备");
+  });
 });

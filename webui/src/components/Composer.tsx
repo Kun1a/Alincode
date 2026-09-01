@@ -15,6 +15,7 @@ export function Composer() {
 
   return (
     <div className="composer">
+      <span className="composer-plus" aria-hidden="true">＋</span>
       <textarea
         value={text}
         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
@@ -28,8 +29,8 @@ export function Composer() {
         }}
       />
       {state.busy
-        ? <button onClick={cancelTurn}>取消</button>
-        : <button onClick={submit} disabled={!text.trim()}>发送</button>}
+        ? <button aria-label="取消运行" onClick={cancelTurn}>取消</button>
+        : <button aria-label="发送消息" onClick={submit} disabled={!text.trim()}>↑</button>}
     </div>
   );
 }

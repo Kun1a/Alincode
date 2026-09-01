@@ -14,18 +14,26 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
   return (
     <div className="message-list">
       {blocks.map((b, i) => {
+        const meta = b.kind === "user" ? "你" : b.kind === "assistant" ? "AlinCode" : null;
+        let content;
         switch (b.kind) {
           case "user":
-            return <div key={i} className="msg user">{b.content}</div>;
+            content = <div className="msg user">{b.content}</div>;
+            break;
           case "assistant":
-            return <AssistantBlock key={i} block={b} />;
+            content = <AssistantBlock block={b} />;
+            break;
           case "tool":
-            return <ToolBlock key={i} block={b} />;
+            content = <ToolBlock block={b} />;
+            break;
           case "approval":
-            return <ApprovalCard key={i} block={b} />;
+            content = <ApprovalCard block={b} />;
+            break;
           case "notice":
-            return <div key={i} className={`msg notice ${b.tone}`}>{b.text}</div>;
+            content = <div className={`msg notice ${b.tone}`}>{b.text}</div>;
+            break;
         }
+        return <article key={i} className={`message-row ${b.kind}`}>{meta ? <p className="message-meta">{meta}</p> : null}{content}</article>;
       })}
       <div ref={endRef} />
     </div>
