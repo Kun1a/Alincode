@@ -92,6 +92,7 @@ def create_session(
         memory_text=ctx.memory_text,
         skills_catalog=ctx.catalog,
         hook_engine=ctx.hook_engine,
+        workspace=ctx.workspace,
     )
 
     # 子 Agent 工具回填（对应 driver 原来的 per-agent wire）

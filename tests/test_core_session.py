@@ -68,6 +68,7 @@ def new_registry_with_load_skill() -> Registry:
 def test_create_session_new(tmp_path):
     bundle = create_session(_fake_ctx(tmp_path))
     assert bundle.agent is not None
+    assert bundle.agent.workspace == str(tmp_path.resolve())
     assert bundle.runtime.session.session_id
     assert os.path.isfile(os.path.join(bundle.runtime.session.session_dir, "conversation.jsonl"))
     bundle.writer.close()

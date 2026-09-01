@@ -16,6 +16,7 @@ from Alincode.conversation import (
     NOTICE_CANCELLED,
 )
 from Alincode.tools import Registry, Result
+from Alincode.tool.ctx import cwd_from_ctx
 
 
 # ── Fake provider (v2 — Request-based) ──────────────────
@@ -102,6 +103,12 @@ class FakeWriteTool:
         return self._result
 
 
+class CwdTool(FakeReadOnlyTool):
+    async def execute(self, args: str) -> Result:
+        self.executed = True
+        return Result(content=cwd_from_ctx() or "")
+
+
 # ── Tests ──────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -127,6 +134,25 @@ async def test_natural_completion():
     assert events[-1].done
     msgs = conv.messages
     assert msgs[-1].role == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_tools_run_in_the_explicit_agent_workspace(tmp_path):
+    conv = ConversationManager()
+    conv.add_user("show workspace")
+    registry = Registry()
+    registry.register(CwdTool(name="read_file"))
+    provider = FakeProvider([
+        [StreamEvent(tool_calls=[ToolCall(id="1", name="read_file", input="{}")])],
+        [StreamEvent(done=True)],
+    ])
+    agent = Agent(provider, registry, workspace=str(tmp_path))
+
+    async for _ in agent.run(conv, mode=Mode.BYPASS):
+        pass
+
+    tool_result = next(message for message in conv.messages if message.tool_results)
+    assert tool_result.tool_results[0].content == str(tmp_path.resolve())
 
 
 @pytest.mark.asyncio

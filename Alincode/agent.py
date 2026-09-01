@@ -133,6 +133,7 @@ class Agent:
         memory_text: str = "",
         skills_catalog: "Catalog | None" = None,
         hook_engine: "HookEngine | None" = None,
+        workspace: str | None = None,
         # ── SubAgent 构造参数 ──
         system_prompt: str | None = None,
         max_turns: int = 0,
@@ -152,6 +153,7 @@ class Agent:
         self._memory_text = memory_text
         self._catalog = skills_catalog
         self._hook_engine = hook_engine
+        self._workspace = str(Path(workspace).resolve()) if workspace else str(Path.cwd())
 
         # SubAgent 扩展
         self.system_prompt = system_prompt
@@ -163,6 +165,11 @@ class Agent:
 
         self._run_lock = asyncio.Lock()
         self._turn_count = 0
+
+    @property
+    def workspace(self) -> str:
+        """当前 Agent 的显式工作目录。"""
+        return self._workspace
 
     def _filtered_defs(self, mode: Mode) -> list[ToolDefinition]:
         """返回过滤后的工具定义（子 Agent 用 allowed_tools 收窄）。"""
@@ -196,7 +203,7 @@ class Agent:
 
         max_iters = self.max_turns if self.max_turns > 0 else MAX_ITERATIONS
 
-        env = await gather_environment(cwd=None, version=self._version, model=self._model)
+        env = await gather_environment(cwd=self._workspace, version=self._version, model=self._model)
         stable, env_block = build_system_prompt(
             env, instructions=self._instruction_text, memory=self._memory_text,
             skills_catalog="",
@@ -349,9 +356,12 @@ class Agent:
         if cancel is None:
             cancel = asyncio.Event()
 
+        from Alincode.tool.ctx import with_cwd
+
         async with self._run_lock:
-            async for ev in self._run_impl(conv, mode, cancel):
-                yield ev
+            with with_cwd(self._workspace):
+                async for ev in self._run_impl(conv, mode, cancel):
+                    yield ev
 
     async def _run_impl(
         self,
@@ -360,7 +370,7 @@ class Agent:
         cancel: asyncio.Event,
     ) -> AsyncIterator[Event]:
         env = await gather_environment(
-            cwd=None, version=self._version, model=self._model
+            cwd=self._workspace, version=self._version, model=self._model
         )
         # Active skills（每轮不变——在 env 中动态渲染）
         active_entries = active_to_prompt_entries(self.runtime.active_skills)
@@ -408,7 +418,7 @@ class Agent:
             await self._dispatch_hook(HookEvent.PRE_COMPACT, {
                 "event": HookEvent.PRE_COMPACT.value,
                 "session_id": self.runtime.session.session_id,
-                "cwd": str(Path.cwd()),
+                "cwd": self._workspace,
                 "mode": mode.value,
                 "trigger": "auto",
             })
@@ -446,7 +456,7 @@ class Agent:
             await self._dispatch_hook(HookEvent.POST_COMPACT, {
                 "event": HookEvent.POST_COMPACT.value,
                 "session_id": self.runtime.session.session_id,
-                "cwd": str(Path.cwd()),
+                "cwd": self._workspace,
                 "mode": mode.value,
                 "trigger": "auto",
                 "before_tokens": est,
@@ -460,7 +470,7 @@ class Agent:
             # ── 每轮重扫 Skill 目录（mtime 缓存热加载） ──
             skills_cat_text = ""
             if self._catalog:
-                self._catalog.reload_if_changed(Path.cwd())
+                self._catalog.reload_if_changed(Path(self._workspace))
                 items = catalog_to_prompt_items(self._catalog)
                 if items:
                     lines = ["## Available Skills", ""]
@@ -486,10 +496,10 @@ class Agent:
             # ── Hook: PreUserMessage ──
             if conv.messages:
                 last_msg = conv.messages[-1]
-                await self._dispatch_hook(HookEvent.PRE_USER_MESSAGE, {
+            await self._dispatch_hook(HookEvent.PRE_USER_MESSAGE, {
                     "event": HookEvent.PRE_USER_MESSAGE.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "prompt": last_msg.content if last_msg.role == "user" else "",
                 })
@@ -553,7 +563,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.PRE_COMPACT, {
                     "event": HookEvent.PRE_COMPACT.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "trigger": "emergency",
                 })
@@ -590,7 +600,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.POST_COMPACT, {
                     "event": HookEvent.POST_COMPACT.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "trigger": "emergency",
                     "before_tokens": est,
@@ -655,7 +665,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.NOTIFICATION, {
                     "event": HookEvent.NOTIFICATION.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "kind": "stream_error",
                     "detail": str(err),
@@ -688,7 +698,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.STOP, {
                     "event": HookEvent.STOP.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "iter": iteration,
                 })
@@ -772,7 +782,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.POST_TOOL_USE, {
                     "event": HookEvent.POST_TOOL_USE.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "tool": call.name,
                     "args": tool_input,
@@ -869,7 +879,7 @@ class Agent:
             hook_result = await self._dispatch_hook(HookEvent.PRE_TOOL_USE, {
                 "event": HookEvent.PRE_TOOL_USE.value,
                 "session_id": self.runtime.session.session_id,
-                "cwd": str(Path.cwd()),
+                "cwd": self._workspace,
                 "mode": mode.value,
                 "tool": call.name,
                 "args": tool_input,
@@ -902,7 +912,7 @@ class Agent:
                 await self._dispatch_hook(HookEvent.NOTIFICATION, {
                     "event": HookEvent.NOTIFICATION.value,
                     "session_id": self.runtime.session.session_id,
-                    "cwd": str(Path.cwd()),
+                    "cwd": self._workspace,
                     "mode": mode.value,
                     "kind": "approval",
                     "detail": call.name,

@@ -250,6 +250,7 @@ class AgentTool:
             dont_ask=defi.dont_ask,
             hook_engine=parent._hook_engine,
             allowed_tools=allowed,
+            workspace=wt_path or parent.workspace,
         )
 
         # ── 子对话 ───────────────────────────────────
@@ -268,7 +269,7 @@ class AgentTool:
         if wt_path:
             import os as _os
 
-            parent_cwd = _os.getcwd()
+            parent_cwd = parent.workspace
             notice = _build_worktree_notice(parent_cwd, wt_path)
             task_text = notice + "\n\n" + task_text if task_text else notice
 
