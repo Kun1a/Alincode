@@ -156,6 +156,23 @@ async def test_tools_run_in_the_explicit_agent_workspace(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_subagent_run_uses_its_explicit_workspace(tmp_path):
+    registry = Registry()
+    registry.register(CwdTool(name="read_file"))
+    provider = FakeProvider([
+        [StreamEvent(tool_calls=[ToolCall(id="1", name="read_file", input="{}")])],
+        [StreamEvent(text="done")],
+    ])
+    agent = Agent(provider, registry, workspace=str(tmp_path), permission_mode="bypassPermissions")
+
+    conv = ConversationManager()
+    await agent.run_to_completion(conv, "show workspace")
+
+    tool_result = next(message for message in conv.messages if message.tool_results)
+    assert tool_result.tool_results[0].content == str(tmp_path.resolve())
+
+
+@pytest.mark.asyncio
 async def test_max_iterations():
     """AC3: 迭代上限。"""
     conv = ConversationManager()

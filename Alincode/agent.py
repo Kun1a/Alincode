@@ -188,6 +188,18 @@ class Agent:
         task: str,
         events: "asyncio.Queue | None" = None,
     ) -> str:
+        """在 Agent 的显式工作目录内运行子 Agent。"""
+        from Alincode.tool.ctx import with_cwd
+
+        with with_cwd(self._workspace):
+            return await self._run_to_completion_impl(conv, task, events)
+
+    async def _run_to_completion_impl(
+        self,
+        conv: ConversationManager,
+        task: str,
+        events: "asyncio.Queue | None" = None,
+    ) -> str:
         """子 Agent "跑到底" 模式：非交互执行，模型不再调工具即结束。"""
         if task:
             conv.add_user(task)
