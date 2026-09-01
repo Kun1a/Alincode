@@ -222,17 +222,32 @@ def create_app(
     async def ws_endpoint(ws: WebSocket) -> None:
         session_root = None
         profile_id = None
+        session_ctx = ctx
+        owns_context = False
         if auth is not None:
             try:
                 profile_id = _profile_for_session(ws.cookies.get("alincode_session", ""))
+                assert profile_service is not None
+                workspace = profile_service.workspace(profile_id)
+                if workspace is None:
+                    raise ValueError("请先选择项目目录")
+                session_ctx = await build_context(
+                    workspace=workspace,
+                    provider_override=profile_service.provider_config(profile_id),
+                )
+                owns_context = True
             except HTTPException:
+                await ws.close(code=1008)
+                return
+            except (FileNotFoundError, ValueError):
                 await ws.close(code=1008)
                 return
             assert profile_store is not None
             session_root = str(profile_store.sessions_dir(profile_id))
+        assert session_ctx is not None
         await ws.accept()
         session = WebSession(
-            ctx,
+            session_ctx,
             session_root=session_root,
             profile_service=profile_service,
             profile_id=profile_id,
@@ -257,6 +272,8 @@ def create_app(
             pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
+            if owns_context:
+                await shutdown_context(session_ctx)
 
     # 静态前端（构建后）。dist 不存在时给提示页，避免 404 困惑。
     if WEBUI_DIST.is_dir():

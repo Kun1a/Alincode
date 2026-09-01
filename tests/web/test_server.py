@@ -12,6 +12,7 @@ from Alincode.config import AppConfig, ProviderConfig
 from Alincode.conversation import StreamEvent
 from Alincode.tools import Registry
 from Alincode.profile.store import ProfileStore
+from Alincode.profile.service import ProfileService
 from Alincode.web.auth import LocalAuth
 from Alincode.web.server import create_app
 
@@ -77,8 +78,19 @@ def test_desktop_ws_requires_an_unlocked_profile_and_uses_private_history(tmp_pa
     assert error.value.code == 1008
 
     profile = client.post("/api/profiles", json={"name": "Alin", "password": "secret"}).json()
+    profile_service = ProfileService(store)
+    profile_service.save_provider(
+        profile["id"], protocol="openai", model="profile-model",
+        base_url="https://api.example.test", api_key="sk-profile-key",
+    )
+    workspace = tmp_path / "profile-workspace"
+    workspace.mkdir()
+    profile_service.set_workspace(profile["id"], workspace)
     with client.websocket_connect("/ws") as conn:
-        assert conn.receive_json()["type"] == "session.info"
+        info = conn.receive_json()
+        assert info["type"] == "session.info"
+        assert info["model"] == "profile-model"
+        assert info["workspace"] == str(workspace.resolve())
 
     assert any(store.sessions_dir(profile["id"]).iterdir())
 
