@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import mimetypes
 import os
 import sys
 from pathlib import Path
@@ -293,6 +294,9 @@ def create_app(
     # 静态前端（构建后）。dist 不存在时给提示页，避免 404 困惑。
     frontend_dist = webui_dist()
     if frontend_dist.is_dir():
+        # PyInstaller 环境可能缺失 Windows MIME 注册表，导致 ES module 被当作 text/plain。
+        mimetypes.add_type("application/javascript", ".js", strict=True)
+        mimetypes.add_type("application/javascript", ".mjs", strict=True)
         from fastapi.staticfiles import StaticFiles
         app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="ui")
     else:

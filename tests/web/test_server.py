@@ -2,6 +2,7 @@
 """REST + WebSocket 集成测试（FastAPI TestClient，不起真实端口）。"""
 
 import json
+import mimetypes
 
 import pytest
 from fastapi.testclient import TestClient
@@ -47,6 +48,19 @@ def test_health_and_sessions(tmp_path):
     assert sessions and sessions[0]["id"] == "20260815-000000-ab"
     blocks = client.get("/api/sessions/20260815-000000-ab/messages").json()
     assert blocks[0] == {"kind": "user", "content": "旧话题"}
+
+
+def test_frontend_module_is_served_as_javascript_when_system_mime_is_missing(tmp_path, monkeypatch):
+    frontend = tmp_path / "dist"
+    frontend.mkdir()
+    (frontend / "index.html").write_text('<script type="module" src="/app.js"></script>', encoding="utf-8")
+    (frontend / "app.js").write_text("console.log('ready')", encoding="utf-8")
+    monkeypatch.setattr("Alincode.web.server.webui_dist", lambda: frontend)
+    monkeypatch.setitem(mimetypes.types_map, ".js", "text/plain")
+
+    client = TestClient(create_app(_ctx(tmp_path, FakeProvider([[]]))))
+
+    assert client.get("/app.js").headers["content-type"].startswith("application/javascript")
 
 
 def test_ws_full_turn(tmp_path):
