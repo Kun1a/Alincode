@@ -45,7 +45,7 @@
 
 ## 构建与发布
 
-- [ ] 后端测试全部通过。（验证：`uv run pytest tests -q` 退出码为 0。）
+- [x] 后端测试全部通过。（验证：`uv run pytest tests -q` 退出码为 0。）
 - [x] 前端构建成功。（验证：`cd webui; npm run build` 退出码为 0，生成 `webui/dist`。）
 - [x] Windows 构建脚本生成 `AlinCode-windows-x64.zip`。（验证：运行 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1` 并检查产物。）
 - [ ] 在未安装 Python/Node.js 的 Windows x64 测试环境中，解压后双击可启动桌面应用。（验证：测试机完成启动并进入 Profile 页。）

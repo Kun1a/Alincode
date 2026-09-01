@@ -50,7 +50,7 @@ class TeammateInfo:
             "model": self.model,
             "worktree_path": self.worktree_path,
             "branch": self.branch,
-            "backend_type": str(self.backend_type),
+            "backend_type": self.backend_type.value,
             "pane_id": self.pane_id,
             "is_active": self.is_active,  # 保留 None 语义
             "plan_mode_required": self.plan_mode_required,
@@ -113,7 +113,7 @@ class Team:
             "name": self.name,
             "sanitized_name": self.sanitized_name,
             "lead_agent_id": self.lead_agent_id,
-            "backend": str(self.backend),
+            "backend": self.backend.value,
             "description": self.description,
             "created_at": int(self.created_at.timestamp()),
             "members": [m.to_dict() for m in self.members],

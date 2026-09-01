@@ -43,7 +43,7 @@ class Message:
         return {
             "from": self.from_,
             "to": self.to,
-            "type": str(self.type),
+            "type": self.type.value,
             "summary": self.summary,
             "content": self.content,
             "payload": self.payload,

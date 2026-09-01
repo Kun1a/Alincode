@@ -47,7 +47,7 @@ class Task:
             "id": self.id,
             "title": self.title,
             "description": self.description,
-            "status": str(self.status),
+            "status": self.status.value,
             "assignee": self.assignee,
             "blocked_by": list(self.blocked_by),
             "blocks": list(self.blocks),
@@ -175,7 +175,7 @@ class Store:
             if patch.description is not None:
                 target["description"] = patch.description
             if patch.status is not None:
-                target["status"] = str(patch.status)
+                target["status"] = patch.status.value
             if patch.assignee is not None:
                 target["assignee"] = patch.assignee
 

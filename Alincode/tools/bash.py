@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
 
 from Alincode.tools import Result, _truncate
 
@@ -46,6 +48,7 @@ class BashTool:
 
     async def execute(self, args: str) -> Result:
         """执行 shell 命令。"""
+        proc = None
         try:
             data = json.loads(args) if args and args.strip() else {}
             command = data.get("command", "")
@@ -59,7 +62,7 @@ class BashTool:
             from Alincode.tool.ctx import resolve_path
 
             proc = await asyncio.create_subprocess_shell(
-                command,
+                _windows_compatible_command(command),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=resolve_path("") or None,
@@ -82,3 +85,16 @@ class BashTool:
             return Result(content=result)
         except OSError as e:
             return Result(content=f"执行命令失败: {e}", is_error=True)
+        except asyncio.CancelledError:
+            if proc is not None and proc.returncode is None:
+                proc.kill()
+                await proc.communicate()
+            raise
+
+
+def _windows_compatible_command(command: str) -> str:
+    """为常见 POSIX 等待命令提供 Windows 等价形式。"""
+    match = re.fullmatch(r"sleep\s+(\d+(?:\.\d+)?)", command.strip())
+    if os.name == "nt" and match:
+        return f"powershell -NoProfile -Command Start-Sleep -Seconds {match.group(1)}"
+    return command
