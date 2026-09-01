@@ -16,6 +16,7 @@ from Alincode.bootstrap import AppContext
 from Alincode.core_session import SessionBundle, create_session
 from Alincode.hook.event import Event as HookEvent
 from Alincode.permission import ApprovalRequest, Mode, Outcome
+from Alincode.profile.service import ProfileService
 from Alincode.prompts import SYSTEM_PROMPT
 from Alincode.web.protocol import project_event, project_messages
 
@@ -27,9 +28,19 @@ OUTCOME_MAP = {
 
 
 class WebSession:
-    def __init__(self, ctx: AppContext, session_root: str | None = None) -> None:
+    def __init__(
+        self,
+        ctx: AppContext,
+        session_root: str | None = None,
+        profile_service: ProfileService | None = None,
+        profile_id: str | None = None,
+    ) -> None:
+        if (profile_service is None) != (profile_id is None):
+            raise ValueError("Profile 用量统计需要同时提供服务和标识")
         self._ctx = ctx
         self._session_root = session_root
+        self._profile_service = profile_service
+        self._profile_id = profile_id
         self.bundle: SessionBundle = create_session(ctx, session_root=session_root)
         self.outbox: asyncio.Queue[dict] = asyncio.Queue()
         self._approvals: dict[str, ApprovalRequest] = {}
@@ -87,6 +98,14 @@ class WebSession:
         if self.busy:
             await self._emit({"type": "notice", "text": "请等待当前回复完成..."})
             return
+        if self._profile_service is not None and self._profile_id is not None:
+            status = self._profile_service.budget_status(self._profile_id)
+            if status["blocked"]:
+                await self._emit({"type": "budget.status", **status})
+                await self._emit({
+                    "type": "notice", "text": "本地 token 预算已用尽，请在设置中提高预算。",
+                })
+                return
 
         if self._ctx.hook_engine is not None:
             result = await self._ctx.hook_engine.dispatch(
@@ -117,6 +136,16 @@ class WebSession:
             ):
                 for msg in project_event(ev, self._approvals):
                     await self._emit(msg)
+                if ev.usage is not None and self._profile_service is not None and self._profile_id:
+                    self._profile_service.record_usage(
+                        self._profile_id,
+                        input_tokens=ev.usage.input_tokens,
+                        output_tokens=ev.usage.output_tokens,
+                    )
+                    await self._emit({
+                        "type": "budget.status",
+                        **self._profile_service.budget_status(self._profile_id),
+                    })
                 if ev.err is not None or ev.done:
                     break
         except asyncio.CancelledError:

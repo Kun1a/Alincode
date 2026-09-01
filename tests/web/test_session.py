@@ -7,8 +7,10 @@ import pytest
 
 from Alincode.bootstrap import AppContext
 from Alincode.config import AppConfig, ProviderConfig
-from Alincode.conversation import StreamEvent, ToolCall
+from Alincode.conversation import StreamEvent, ToolCall, Usage
 from Alincode.permission.engine import new_engine
+from Alincode.profile.service import ProfileService
+from Alincode.profile.store import ProfileStore
 from Alincode.tools import Registry
 from Alincode.web.session import WebSession
 
@@ -86,3 +88,28 @@ async def test_approval_roundtrip_deny(tmp_path):
     assert resolved and resolved[0]["outcome"] == "deny_once"
     tool_ends = [m for m in msgs if m["type"] == "tool.end"]
     assert tool_ends and tool_ends[0]["is_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_profile_usage_is_recorded_and_budget_blocks_new_turns(tmp_path):
+    profile = ProfileStore(tmp_path / "profiles").create("Alin", "secret")
+    service = ProfileService(ProfileStore(tmp_path / "profiles"))
+    service.set_budget(profile.id, 5)
+    provider = FakeProvider([[
+        StreamEvent(usage=Usage(input_tokens=3, output_tokens=2)),
+        StreamEvent(done=True),
+    ]])
+    ws = WebSession(
+        _ctx(tmp_path, provider, Registry()), profile_service=service, profile_id=profile.id,
+    )
+    await ws.open()
+    await ws.send_user("在吗")
+    messages = await _collect_until(ws, "turn.done")
+
+    status = next(message for message in messages if message["type"] == "budget.status")
+    assert status["budget"] == 5
+    assert status["used_tokens"] == 5
+    assert status["blocked"] is True
+    await ws.send_user("再问一次")
+    assert (await _next_of(ws, "notice"))["text"] == "本地 token 预算已用尽，请在设置中提高预算。"
+    assert provider.call_count == 1

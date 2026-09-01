@@ -221,6 +221,7 @@ def create_app(
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
         session_root = None
+        profile_id = None
         if auth is not None:
             try:
                 profile_id = _profile_for_session(ws.cookies.get("alincode_session", ""))
@@ -230,7 +231,12 @@ def create_app(
             assert profile_store is not None
             session_root = str(profile_store.sessions_dir(profile_id))
         await ws.accept()
-        session = WebSession(ctx, session_root=session_root)
+        session = WebSession(
+            ctx,
+            session_root=session_root,
+            profile_service=profile_service,
+            profile_id=profile_id,
+        )
 
         async def _pump() -> None:
             """唯一写 socket 的协程：outbox → 浏览器。"""
