@@ -25,4 +25,16 @@ describe("ChatView", () => {
     expect(html).toContain("你的本地 Coding Agent");
     expect(html).toContain("仅保存在这台设备");
   });
+
+  it("offers the implemented execution modes", () => {
+    const html = renderToStaticMarkup(
+      <ChatProvider>
+        <ChatView profile={{ id: "profile-a", name: "Alin" }} onLock={() => undefined} />
+      </ChatProvider>,
+    );
+
+    expect(html).toContain("执行模式");
+    expect(html).toContain("自动审批编辑");
+    expect(html).toContain("规划模式");
+  });
 });

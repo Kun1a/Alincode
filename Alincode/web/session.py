@@ -86,6 +86,8 @@ class WebSession:
             self.cancel_turn()
         elif t == "session.resume":
             await self.resume(str(data.get("session_id", "")))
+        elif t == "mode.set":
+            await self.set_mode(str(data.get("mode", "")))
         else:
             await self._emit({"type": "notice", "text": f"未知消息类型: {t}"})
 
@@ -171,6 +173,23 @@ class WebSession:
 
     def cancel_turn(self) -> None:
         self._cancel.set()
+
+    async def set_mode(self, value: str) -> None:
+        if self.busy:
+            await self._emit({"type": "notice", "text": "请等待当前任务完成后再切换执行模式。"})
+            return
+        try:
+            self._mode = Mode(value)
+        except ValueError:
+            await self._emit({"type": "notice", "text": "不支持的执行模式。"})
+            return
+        await self._emit({
+            "type": "session.info",
+            "session_id": self.bundle.session_id,
+            "workspace": self._ctx.workspace,
+            "model": self._ctx.provider_cfg.model,
+            "mode": self._mode.value,
+        })
 
     # ── 会话恢复（对应 app.py:753-839 的精简版）──────
 

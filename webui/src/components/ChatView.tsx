@@ -10,7 +10,7 @@ import { EnvironmentPanel } from "./EnvironmentPanel";
 import { useChat } from "../state/ChatContext";
 
 export function ChatView({ profile, onLock }: { profile: Profile | null; onLock: () => void }) {
-  const { state } = useChat();
+  const { state, setMode } = useChat();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const workspaceParts = state.workspace.split(/[\\/]/).filter(Boolean);
   const workspaceName = workspaceParts[workspaceParts.length - 1] || "未选择项目目录";
@@ -18,7 +18,7 @@ export function ChatView({ profile, onLock }: { profile: Profile | null; onLock:
     <div className="desktop-shell">
       {profile ? <Sidebar profile={profile} /> : null}
       <main className="chat-view">
-        <div className="chat-topbar"><div><strong>{state.sessionId ? "当前对话" : "新建对话"}</strong><span>{workspaceName}</span></div>{profile ? <button onClick={() => setSettingsOpen(true)}>设置</button> : null}</div>
+        <div className="chat-topbar"><div><strong>{state.sessionId ? "当前对话" : "新建对话"}</strong><span>{workspaceName}</span></div><div className="chat-actions"><label>执行模式<select aria-label="执行模式" value={state.mode || "default"} disabled={state.busy} onChange={(event) => setMode(event.target.value as "default" | "acceptEdits" | "plan" | "bypassPermissions")}><option value="default">默认审批</option><option value="acceptEdits">自动审批编辑</option><option value="plan">规划模式</option><option value="bypassPermissions">跳过审批</option></select></label>{profile ? <button onClick={() => setSettingsOpen(true)}>设置</button> : null}</div></div>
         <StatusBar />
         <MessageList blocks={state.blocks} />
         <Composer />

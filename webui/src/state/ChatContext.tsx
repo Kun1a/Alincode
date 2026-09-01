@@ -15,6 +15,7 @@ interface ChatApi {
   respondApproval: (requestId: string, outcome: "allow_once" | "allow_forever" | "deny_once") => void;
   cancelTurn: () => void;
   resumeSession: (sessionId: string) => void;
+  setMode: (mode: "default" | "acceptEdits" | "plan" | "bypassPermissions") => void;
 }
 
 const ChatContext = createContext<ChatApi | null>(null);
@@ -75,6 +76,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       send({ type: "approval.respond", request_id: requestId, outcome }),
     cancelTurn: () => send({ type: "turn.cancel" }),
     resumeSession: (sessionId) => send({ type: "session.resume", session_id: sessionId }),
+    setMode: (mode) => send({ type: "mode.set", mode }),
   }), [state]);
 
   return <ChatContext.Provider value={api}>{children}</ChatContext.Provider>;

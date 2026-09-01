@@ -113,3 +113,28 @@ async def test_profile_usage_is_recorded_and_budget_blocks_new_turns(tmp_path):
     await ws.send_user("再问一次")
     assert (await _next_of(ws, "notice"))["text"] == "本地 token 预算已用尽，请在设置中提高预算。"
     assert provider.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_mode_change_is_emitted_and_applies_to_the_session(tmp_path):
+    ws = WebSession(_ctx(tmp_path, FakeProvider([]), Registry()))
+    await ws.open()
+    await _next_of(ws, "session.info")
+
+    await ws.handle({"type": "mode.set", "mode": "plan"})
+
+    info = await _next_of(ws, "session.info")
+    assert info["mode"] == "plan"
+    assert ws._mode.value == "plan"
+
+
+@pytest.mark.asyncio
+async def test_invalid_mode_keeps_the_current_mode(tmp_path):
+    ws = WebSession(_ctx(tmp_path, FakeProvider([]), Registry()))
+    await ws.open()
+    await _next_of(ws, "session.info")
+
+    await ws.handle({"type": "mode.set", "mode": "danger"})
+
+    assert (await _next_of(ws, "notice"))["text"] == "不支持的执行模式。"
+    assert ws._mode.value == "default"

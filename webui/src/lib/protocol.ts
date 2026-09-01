@@ -29,4 +29,5 @@ export type ClientMsg =
   | { type: "chat.send"; text: string }
   | { type: "approval.respond"; request_id: string; outcome: "allow_once" | "allow_forever" | "deny_once" }
   | { type: "turn.cancel" }
-  | { type: "session.resume"; session_id: string };
+  | { type: "session.resume"; session_id: string }
+  | { type: "mode.set"; mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" };
