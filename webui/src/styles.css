@@ -70,6 +70,27 @@ body {
   margin: 0 auto;
 }
 
+.desktop-shell { display: flex; height: 100vh; }
+.desktop-shell .chat-view { flex: 1; max-width: none; }
+.sidebar { width: 250px; flex: 0 0 250px; padding: .9rem; background: #101820; border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: .75rem; }
+.new-chat { text-align: left; border-color: #42677a; }
+.sidebar-label { margin: .75rem .2rem 0; color: var(--dim); font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; }
+.session-list { overflow: auto; display: grid; gap: .25rem; }
+.session-item { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; padding: .55rem .6rem; }
+.session-item.active { background: #1e3340; color: var(--accent); }
+.empty-history { color: var(--dim); font-size: .84rem; padding: .5rem; }
+.chat-topbar { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 1.25rem; border-bottom: 1px solid var(--border); }
+.chat-topbar span { font-weight: 700; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 1rem; background: #0008; }
+.settings-dialog { width: min(100%, 560px); max-height: calc(100vh - 2rem); overflow: auto; padding: 1.4rem; background: #121c25; border: 1px solid #406174; border-radius: 14px; box-shadow: 0 28px 70px #000a; }
+.settings-dialog header, .settings-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.settings-dialog header span { display: block; margin-top: .2rem; color: var(--dim); font-size: .8rem; }
+.settings-dialog label { display: grid; gap: .4rem; margin-top: 1rem; color: #c5d4dc; font-size: .85rem; }
+.settings-dialog input, .settings-dialog select { min-height: 38px; padding: .55rem .65rem; color: var(--fg); background: #0c141b; border: 1px solid var(--border); border-radius: 7px; font: inherit; }
+.settings-dialog footer { margin-top: 1.25rem; }
+.settings-message { color: var(--accent); font-size: .86rem; }
+@media (max-width: 760px) { .sidebar { display: none; } }
+
 /* ── 消息列表 ─────────────────────────────── */
 .message-list {
   flex: 1;

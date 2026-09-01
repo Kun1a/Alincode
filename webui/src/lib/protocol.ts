@@ -18,6 +18,7 @@ export type ServerMsg =
   | { type: "approval.request"; request_id: string; tool_name: string; tool_args: string; reason: string }
   | { type: "approval.resolved"; request_id: string; outcome: string }
   | { type: "usage"; input_tokens: number; output_tokens: number; cache_write: number; cache_read: number }
+  | { type: "budget.status"; budget: number; input_tokens: number; output_tokens: number; used_tokens: number; blocked: boolean }
   | { type: "iter"; value: number }
   | { type: "notice"; text: string }
   | { type: "compact"; phase: string; before: number; after: number; error: string }

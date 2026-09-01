@@ -9,7 +9,7 @@ export default function App() {
   if (profile === undefined) return <ProfileGate onReady={setProfile} />;
   return (
     <ChatProvider>
-      <ChatView />
+      <ChatView profile={profile} onLock={() => setProfile(undefined)} />
     </ChatProvider>
   );
 }

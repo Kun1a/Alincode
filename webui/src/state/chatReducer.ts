@@ -9,12 +9,15 @@ export interface ChatState {
   sessionId: string;
   inputTokens: number;
   outputTokens: number;
+  budget: number;
+  usedTokens: number;
+  budgetBlocked: boolean;
   iter: number;
 }
 
 export const initialChatState: ChatState = {
   blocks: [], busy: false, connected: false, sessionId: "",
-  inputTokens: 0, outputTokens: 0, iter: 0,
+  inputTokens: 0, outputTokens: 0, budget: 0, usedTokens: 0, budgetBlocked: false, iter: 0,
 };
 
 /** 本地动作：前端私有状态补丁（busy 乐观置位 / 断连标记），不经后端。 */
@@ -92,6 +95,11 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
       };
     case "usage":
       return { ...state, inputTokens: msg.input_tokens, outputTokens: msg.output_tokens };
+    case "budget.status":
+      return {
+        ...state, budget: msg.budget, usedTokens: msg.used_tokens,
+        inputTokens: msg.input_tokens, outputTokens: msg.output_tokens, budgetBlocked: msg.blocked,
+      };
     case "iter":
       return { ...state, iter: msg.value };
     case "notice":
