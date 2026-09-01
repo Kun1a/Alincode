@@ -30,7 +30,7 @@
 - 修改：`webui/src/state/chatReducer.ts`
 - 修改：`webui/src/lib/protocol.ts`
 
-- [ ] **步骤 1：扩展初始聊天状态**
+- [x] **步骤 1：扩展初始聊天状态**
 
 在 `ChatState` 与 `initialChatState` 中增加以下字段，空字符串表示后端尚未送达会话信息：
 
@@ -42,7 +42,7 @@ mode: string;
 workspace: "", model: "", mode: "",
 ```
 
-- [ ] **步骤 2：在 `session.info` 事件中保存环境字段**
+- [x] **步骤 2：在 `session.info` 事件中保存环境字段**
 
 将分支替换为：
 
@@ -58,13 +58,13 @@ case "session.info":
   };
 ```
 
-- [ ] **步骤 3：验证类型和构建**
+- [x] **步骤 3：验证类型和构建**
 
 运行：`npm run build`（工作目录：`webui`）
 
 预期：TypeScript 编译和 Vite 构建成功，且没有协议字段类型错误。
 
-- [ ] **步骤 4：提交**
+- [x] **步骤 4：提交**
 
 ```bash
 git add webui/src/state/chatReducer.ts webui/src/lib/protocol.ts

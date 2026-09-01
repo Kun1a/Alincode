@@ -13,11 +13,15 @@ export interface ChatState {
   usedTokens: number;
   budgetBlocked: boolean;
   iter: number;
+  workspace: string;
+  model: string;
+  mode: string;
 }
 
 export const initialChatState: ChatState = {
   blocks: [], busy: false, connected: false, sessionId: "",
   inputTokens: 0, outputTokens: 0, budget: 0, usedTokens: 0, budgetBlocked: false, iter: 0,
+  workspace: "", model: "", mode: "",
 };
 
 /** 本地动作：前端私有状态补丁（busy 乐观置位 / 断连标记），不经后端。 */
@@ -52,7 +56,14 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
   }
   switch (msg.type) {
     case "session.info":
-      return { ...state, connected: true, sessionId: msg.session_id };
+      return {
+        ...state,
+        connected: true,
+        sessionId: msg.session_id,
+        workspace: msg.workspace,
+        model: msg.model,
+        mode: msg.mode,
+      };
     case "history":
       return { ...state, blocks: msg.blocks, busy: false, sessionId: msg.session_id };
     case "history.append":

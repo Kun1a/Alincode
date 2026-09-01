@@ -14,7 +14,7 @@
 | 修改 | `webui/src/styles.css` | 实现深海蓝三栏视觉。 |
 | 修改 | `docs/superpowers/plans/2026-09-01-windows-desktop-agent-checklist.md` | 记录实际验收结果。 |
 
-## T1：保存会话环境字段
+## T1：保存会话环境字段 ✅
 
 **文件：** `webui/src/state/chatReducer.ts`
 
