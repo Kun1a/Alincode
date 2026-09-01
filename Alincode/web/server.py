@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -20,7 +21,11 @@ from Alincode.web.auth import LocalAuth
 from Alincode.web.protocol import project_messages
 from Alincode.web.session import WebSession
 
-WEBUI_DIST = Path(__file__).resolve().parents[2] / "webui" / "dist"
+def webui_dist() -> Path:
+    """返回源码或 PyInstaller onedir 包中的前端构建产物目录。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "webui" / "dist"
+    return Path(__file__).resolve().parents[2] / "webui" / "dist"
 
 
 def create_app(
@@ -280,9 +285,10 @@ def create_app(
                 await shutdown_context(session_ctx)
 
     # 静态前端（构建后）。dist 不存在时给提示页，避免 404 困惑。
-    if WEBUI_DIST.is_dir():
+    frontend_dist = webui_dist()
+    if frontend_dist.is_dir():
         from fastapi.staticfiles import StaticFiles
-        app.mount("/", StaticFiles(directory=str(WEBUI_DIST), html=True), name="ui")
+        app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="ui")
     else:
         @app.get("/")
         async def index_hint() -> str:

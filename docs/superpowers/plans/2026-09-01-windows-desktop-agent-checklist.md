@@ -46,8 +46,8 @@
 ## 构建与发布
 
 - [ ] 后端测试全部通过。（验证：`uv run pytest tests -q` 退出码为 0。）
-- [ ] 前端构建成功。（验证：`cd webui; npm run build` 退出码为 0，生成 `webui/dist`。）
-- [ ] Windows 构建脚本生成 `AlinCode-windows-x64.zip`。（验证：运行 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1` 并检查产物。）
+- [x] 前端构建成功。（验证：`cd webui; npm run build` 退出码为 0，生成 `webui/dist`。）
+- [x] Windows 构建脚本生成 `AlinCode-windows-x64.zip`。（验证：运行 `powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1` 并检查产物。）
 - [ ] 在未安装 Python/Node.js 的 Windows x64 测试环境中，解压后双击可启动桌面应用。（验证：测试机完成启动并进入 Profile 页。）
 - [ ] 便携包可完成创建 Profile、配置自己的 API、选择项目目录和一次真实对话。（验证：测试机逐项完成并记录结果。）
 - [ ] README 说明 TUI、Web 调试、桌面包、本机数据位置、未签名 SmartScreen 风险和不支持跨设备同步。（验证：人工审阅 README 对应章节。）

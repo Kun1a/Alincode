@@ -57,6 +57,28 @@ cd webui && npm run dev        # Vite 开发服务器 5173，已配置 /api 与 
 WebUI 可驱动真实工具执行（读写文件、运行命令），MVP 阶段无鉴权。
 `--web` 默认仅绑定本机地址；绑定非本机地址前请自行评估风险（启动时会打印警告）。
 
+## Windows 桌面模式
+
+桌面版使用原生窗口承载本机 WebUI，不需要先打开浏览器。首次使用创建本机 Profile；每个 Profile 独立保存密码校验、API Key、项目目录、会话历史与本地 token 统计。
+
+```bash
+python -m Alincode --desktop
+```
+
+桌面服务只监听 `127.0.0.1` 的随机端口，并用一次性启动令牌建立本机会话。API Key 使用 Windows DPAPI 加密，仅能由保存它的 Windows 用户读取。token 用量是本地统计，**不是供应商账户余额**。
+
+本机数据默认位于 `%LOCALAPPDATA%\AlinCode\profiles`。Profile 不做云同步；如需迁移，请在目标电脑重新配置自己的 API Key。
+
+## Windows 便携包
+
+在 Windows x64 开发机执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build_windows.ps1
+```
+
+脚本会构建前端、生成 `onedir` 便携目录并输出 `artifacts\AlinCode-windows-x64.zip`。该包无需用户安装 Python 或 Node.js。可执行文件未签名，Windows SmartScreen 可能显示警告；请只从可信来源获取并按提示查看发布者信息。
+
 ### 功能范围
 
 已支持：消息流式输出、工具执行行（展开参数/结果）、权限审批卡片（允许本次/永久允许/拒绝）、取消、会话持久化与历史列表。

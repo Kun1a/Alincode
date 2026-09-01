@@ -26,3 +26,7 @@ venv/
 node_modules/
 webui/dist/
 *.tsbuildinfo
+
+# Windows 便携包构建产物
+artifacts/
+build/
