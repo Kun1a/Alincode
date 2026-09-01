@@ -25,7 +25,7 @@ uv run pyinstaller --onedir --name AlinCode --noconfirm `
     --distpath $OutputRoot --workpath $BuildRoot --specpath $BuildRoot `
     --add-data "$RepoRoot\webui\dist;webui\dist" `
     --collect-all webview --collect-all Alincode.subagent.builtin `
-    "$RepoRoot\Alincode\__main__.py"
+    "$RepoRoot\Alincode\desktop_entry.py"
 
 Compress-Archive -Path (Join-Path $BundleRoot "*") -DestinationPath $Archive
 Write-Host "已生成：$Archive"

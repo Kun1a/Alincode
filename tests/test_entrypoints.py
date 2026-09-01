@@ -1,6 +1,7 @@
 """三种启动入口的参数路由测试。"""
 
 import sys
+from pathlib import Path
 
 from Alincode import __main__ as entry
 
@@ -36,3 +37,9 @@ def test_desktop_entry_does_not_change_tui_or_web_options(monkeypatch):
     entry.main()
 
     assert called == [True]
+
+
+def test_windows_package_uses_the_desktop_only_entrypoint():
+    script = Path("scripts/build_windows.ps1").read_text(encoding="utf-8")
+
+    assert 'Alincode\\desktop_entry.py' in script
