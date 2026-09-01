@@ -27,9 +27,10 @@ OUTCOME_MAP = {
 
 
 class WebSession:
-    def __init__(self, ctx: AppContext) -> None:
+    def __init__(self, ctx: AppContext, session_root: str | None = None) -> None:
         self._ctx = ctx
-        self.bundle: SessionBundle = create_session(ctx)
+        self._session_root = session_root
+        self.bundle: SessionBundle = create_session(ctx, session_root=session_root)
         self.outbox: asyncio.Queue[dict] = asyncio.Queue()
         self._approvals: dict[str, ApprovalRequest] = {}
         self._turn_task: asyncio.Task | None = None
@@ -148,12 +149,17 @@ class WebSession:
         if self.busy:
             await self._emit({"type": "notice", "text": "请等待当前任务完成..."})
             return
-        session_dir = os.path.join(self._ctx.workspace, ".Alincode", "sessions", session_id)
+        session_dir = os.path.join(
+            self._session_root or os.path.join(self._ctx.workspace, ".Alincode", "sessions"),
+            session_id,
+        )
         if not os.path.isdir(session_dir):
             await self._emit({"type": "notice", "text": f"会话 {session_id} 不存在。"})
             return
         old = self.bundle
-        self.bundle = create_session(self._ctx, resume_id=session_id)
+        self.bundle = create_session(
+            self._ctx, resume_id=session_id, session_root=self._session_root,
+        )
         old.writer.close()
         await self._emit({
             "type": "history",

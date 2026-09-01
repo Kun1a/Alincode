@@ -42,12 +42,17 @@ def create_app(
             raise HTTPException(status_code=401, detail="请先完成本机启动验证")
         return session_id
 
-    def _unlocked_profile(request: Request) -> tuple[str, str]:
-        session_id = _local_session(request)
-        profile_id = auth.profile_for(session_id) if auth else None
+    def _profile_for_session(session_id: str) -> str:
+        if auth is None or not auth.has_session(session_id):
+            raise HTTPException(status_code=401, detail="请先完成本机启动验证")
+        profile_id = auth.profile_for(session_id)
         if profile_id is None:
             raise HTTPException(status_code=403, detail="请先解锁 Profile")
-        return session_id, profile_id
+        return profile_id
+
+    def _unlocked_profile(request: Request) -> tuple[str, str]:
+        session_id = _local_session(request)
+        return session_id, _profile_for_session(session_id)
 
     def _history_dir(request: Request) -> str:
         if auth is None:
@@ -215,8 +220,17 @@ def create_app(
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
+        session_root = None
+        if auth is not None:
+            try:
+                profile_id = _profile_for_session(ws.cookies.get("alincode_session", ""))
+            except HTTPException:
+                await ws.close(code=1008)
+                return
+            assert profile_store is not None
+            session_root = str(profile_store.sessions_dir(profile_id))
         await ws.accept()
-        session = WebSession(ctx)
+        session = WebSession(ctx, session_root=session_root)
 
         async def _pump() -> None:
             """唯一写 socket 的协程：outbox → 浏览器。"""

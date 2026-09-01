@@ -3,7 +3,9 @@
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from Alincode.bootstrap import AppContext
 from Alincode.config import AppConfig, ProviderConfig
@@ -60,6 +62,25 @@ def test_ws_full_turn(tmp_path):
             if m["type"] == "turn.done":
                 break
         assert "text.delta" in got
+
+
+def test_desktop_ws_requires_an_unlocked_profile_and_uses_private_history(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+
+    with pytest.raises(WebSocketDisconnect) as error:
+        with client.websocket_connect("/ws"):
+            pass
+    assert error.value.code == 1008
+
+    profile = client.post("/api/profiles", json={"name": "Alin", "password": "secret"}).json()
+    with client.websocket_connect("/ws") as conn:
+        assert conn.receive_json()["type"] == "session.info"
+
+    assert any(store.sessions_dir(profile["id"]).iterdir())
 
 
 def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
