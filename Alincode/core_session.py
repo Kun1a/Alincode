@@ -50,12 +50,13 @@ def make_replace_handler(writer: SessionWriter):
 def create_session(
     ctx: AppContext,
     resume_id: str | None = None,
+    session_root: str | None = None,
 ) -> SessionBundle:
     """构造一个会话的全部组件。resume_id 非空时从 JSONL 恢复消息。"""
     if resume_id:
-        session_ctx = open_session_context(ctx.workspace, resume_id)
+        session_ctx = open_session_context(ctx.workspace, resume_id, session_root)
     else:
-        session_ctx = new_session_context(ctx.workspace)
+        session_ctx = new_session_context(ctx.workspace, session_root)
 
     runtime = SessionRuntime(
         replacement=ContentReplacementState(),

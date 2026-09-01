@@ -44,21 +44,25 @@ class SessionContext:
     spill_dir: str
 
 
-def new_session_context(workspace: str) -> SessionContext:
+def new_session_context(
+    workspace: str, sessions_root: str | Path | None = None,
+) -> SessionContext:
     """创建会话上下文。落盘目录在首次 spill 时懒创建。"""
     session_id = _new_session_id()
-    ws_path = Path(workspace)
-    session_dir = str(ws_path / ".Alincode" / "sessions" / session_id)
+    sessions_path = Path(sessions_root) if sessions_root else Path(workspace) / ".Alincode" / "sessions"
+    session_dir = str(sessions_path / session_id)
     spill_dir = os.path.join(session_dir, "tool-results")
     return SessionContext(
         session_id=session_id, session_dir=session_dir, spill_dir=spill_dir,
     )
 
 
-def open_session_context(workspace: str, session_id: str) -> SessionContext:
+def open_session_context(
+    workspace: str, session_id: str, sessions_root: str | Path | None = None,
+) -> SessionContext:
     """打开已有会话目录（恢复场景）。不创建目录。"""
-    ws_path = Path(workspace)
-    session_dir = str(ws_path / ".Alincode" / "sessions" / session_id)
+    sessions_path = Path(sessions_root) if sessions_root else Path(workspace) / ".Alincode" / "sessions"
+    session_dir = str(sessions_path / session_id)
     spill_dir = os.path.join(session_dir, "tool-results")
     return SessionContext(
         session_id=session_id, session_dir=session_dir, spill_dir=spill_dir,

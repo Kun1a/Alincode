@@ -102,3 +102,16 @@ def test_load_skill_active_rebind_to_session_runtime(tmp_path):
     bundle = create_session(ctx)
     assert fake_ls._active is bundle.runtime.active_skills
     bundle.writer.close()
+
+
+def test_create_session_can_store_history_outside_agent_workspace(tmp_path):
+    workspace = tmp_path / "workspace"
+    session_root = tmp_path / "profile" / "sessions"
+    workspace.mkdir()
+    ctx = _fake_ctx(workspace)
+
+    bundle = create_session(ctx, session_root=session_root)
+
+    assert bundle.runtime.session.session_dir.startswith(str(session_root))
+    assert not (workspace / ".Alincode" / "sessions").exists()
+    bundle.writer.close()
