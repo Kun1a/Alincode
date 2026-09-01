@@ -67,7 +67,12 @@ def resolve_config_path(config_path: str | None) -> str:
     raise SystemExit(1)
 
 
-async def build_context(config_path: str | None = None) -> AppContext:
+async def build_context(
+    config_path: str | None = None,
+    *,
+    workspace: str | None = None,
+    provider_override: ProviderConfig | None = None,
+) -> AppContext:
     """执行全部共享装配，返回 AppContext。主体逻辑搬自 driver._amain，语义不变。"""
     config_path = resolve_config_path(config_path)
 
@@ -76,13 +81,14 @@ async def build_context(config_path: str | None = None) -> AppContext:
         print("错误: 配置文件中没有有效的 provider")
         raise SystemExit(1)
 
-    # 取第一个 provider（未来可选）
-    provider_cfg = app_cfg.providers[0]
+    # 桌面 Profile 可覆盖模型配置；TUI/Web 仍使用配置文件第一个 provider。
+    provider_cfg = provider_override or app_cfg.providers[0]
     provider = create_provider(provider_cfg)
     registry = new_default_registry()
+    workspace_path = str(Path(workspace).resolve()) if workspace else str(Path.cwd().resolve())
 
     # ── MCP 工具发现与注册 ────────────────────────
-    root = str(Path.cwd().resolve())
+    root = workspace_path
     mcp_cfg = mcp_from_dict(app_cfg.mcp_servers)
     mcp_mgr = None
     try:
@@ -108,14 +114,13 @@ async def build_context(config_path: str | None = None) -> AppContext:
         print(f"权限引擎降级: {err}", file=sys.stderr)
 
     # ── 项目指令加载 ──────────────────────────────
-    workspace = str(Path.cwd().resolve())
     user_home = os.path.expanduser("~")
-    loader = InstructionsLoader(project_root=workspace, user_home=user_home)
+    loader = InstructionsLoader(project_root=workspace_path, user_home=user_home)
     instruction_text = loader.load()
 
     # ── 记忆初始化 ────────────────────────────────
     mem_mgr = MemoryManager(
-        project_dir=os.path.join(workspace, ".Alincode", "memory"),
+        project_dir=os.path.join(workspace_path, ".Alincode", "memory"),
         user_dir=os.path.join(user_home, ".Alincode", "memory"),
         provider=provider,
         model=provider_cfg.model,
@@ -125,13 +130,13 @@ async def build_context(config_path: str | None = None) -> AppContext:
     # ── 后台清理过期会话 ────────────────────────────
     from Alincode.session import clean_expired
 
-    sessions_dir = os.path.join(workspace, ".Alincode", "sessions")
+    sessions_dir = os.path.join(workspace_path, ".Alincode", "sessions")
     asyncio.create_task(
         asyncio.to_thread(clean_expired, sessions_dir, _dt.timedelta(days=30))
     )
 
     # ── Skills 加载 ────────────────────────────────
-    catalog = Catalog.load(workspace)
+    catalog = Catalog.load(workspace_path)
     # fail-fast 工具白名单检查
     issues = catalog.validate_tools(registry)
     for iss in issues:
@@ -164,7 +169,7 @@ async def build_context(config_path: str | None = None) -> AppContext:
     # ── SubAgent Catalog ─────────────────────────────
     from Alincode.subagent import load_catalog as subagent_load_catalog
 
-    subagent_catalog = subagent_load_catalog(workspace)
+    subagent_catalog = subagent_load_catalog(workspace_path)
 
     # ── Task Manager ─────────────────────────────────
     from Alincode.task import Manager as TaskManager
@@ -176,7 +181,7 @@ async def build_context(config_path: str | None = None) -> AppContext:
     try:
         from Alincode.worktree import Manager as WorktreeManager
 
-        wt_mgr = WorktreeManager(workspace)
+        wt_mgr = WorktreeManager(workspace_path)
     except ValueError as e:
         print(f"worktree: init skipped: {e}", file=sys.stderr)
 
@@ -203,7 +208,7 @@ async def build_context(config_path: str | None = None) -> AppContext:
     task_mgr.set_name_registry(name_reg)
     team_mgr = TeamManager(
         home_dir=user_home,
-        project_root=workspace,
+        project_root=workspace_path,
         wt_mgr=wt_mgr,
         task_mgr=task_mgr,
         reg=name_reg,
@@ -263,7 +268,7 @@ async def build_context(config_path: str | None = None) -> AppContext:
         instruction_text=instruction_text,
         memory_text=memory_text,
         memory_manager=mem_mgr,
-        workspace=workspace,
+        workspace=workspace_path,
         catalog=catalog,
         hook_engine=hook_engine,
         subagent_catalog=subagent_catalog,

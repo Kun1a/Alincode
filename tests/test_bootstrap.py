@@ -5,6 +5,7 @@ import os
 import pytest
 
 from Alincode.bootstrap import build_context, resolve_config_path
+from Alincode.config import ProviderConfig
 
 
 @pytest.mark.asyncio
@@ -40,3 +41,32 @@ def test_resolve_config_path_missing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):
         resolve_config_path(None)
+
+
+@pytest.mark.asyncio
+async def test_build_context_accepts_desktop_workspace_and_provider_override(tmp_path):
+    config_dir = tmp_path / "config"
+    workspace = tmp_path / "workspace"
+    config_dir.mkdir()
+    workspace.mkdir()
+    config_path = config_dir / "config.yaml"
+    config_path.write_text(
+        "providers:\n"
+        "  - name: file\n"
+        "    protocol: anthropic\n"
+        "    model: file-model\n"
+        "    base_url: http://localhost:9\n"
+        "    api_key: file-key\n",
+        encoding="utf-8",
+    )
+    override = ProviderConfig(
+        name="desktop", protocol="openai", model="desktop-model",
+        base_url="https://api.example.test", api_key="desktop-key",
+    )
+
+    ctx = await build_context(
+        str(config_path), workspace=str(workspace), provider_override=override,
+    )
+
+    assert ctx.workspace == str(workspace.resolve())
+    assert ctx.provider_cfg is override
