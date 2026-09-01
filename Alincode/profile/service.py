@@ -41,6 +41,22 @@ class ProfileService:
         status["budget"] = budget
         self._write_usage(profile_id, status)
 
+    def set_workspace(self, profile_id: str, workspace: str | Path) -> None:
+        """保存 Profile 的项目目录，只接受已存在的目录。"""
+        path = Path(workspace).expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError("项目目录不存在或不是目录")
+        self._write_json(self._store.profile_dir(profile_id) / "workspace.json", {
+            "path": str(path),
+        })
+
+    def workspace(self, profile_id: str) -> str | None:
+        """返回 Profile 的项目目录；尚未设置时为 None。"""
+        path = self._store.profile_dir(profile_id) / "workspace.json"
+        if not path.is_file():
+            return None
+        return self._read_json(path)["path"]
+
     def record_usage(self, profile_id: str, *, input_tokens: int, output_tokens: int) -> None:
         if input_tokens < 0 or output_tokens < 0:
             raise ValueError("token 用量不能为负数")

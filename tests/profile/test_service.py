@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from Alincode.profile.service import ProfileService
 from Alincode.profile.store import ProfileStore
 
@@ -47,3 +49,17 @@ def test_usage_reaches_budget_and_blocks_new_turns(tmp_path):
         "used_tokens": 100,
         "blocked": True,
     }
+
+
+def test_workspace_must_be_an_existing_directory(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    profile = store.create("Alin", "correct-password")
+    service = ProfileService(store)
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+
+    service.set_workspace(profile.id, workspace)
+
+    assert service.workspace(profile.id) == str(workspace.resolve())
+    with pytest.raises(ValueError, match="项目目录不存在"):
+        service.set_workspace(profile.id, tmp_path / "missing")
