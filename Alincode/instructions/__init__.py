@@ -1,4 +1,4 @@
-"""项目指令加载：三层 MEWCODE.md + @include 展开（T3）。"""
+"""项目指令加载：三层 ALINCODE.md + @include 展开（T3）。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ _INCLUDE_RE = re.compile(r"^@include\s+(.+)$")
 
 @dataclass
 class Loader:
-    """三层 MEWCODE.md 加载器。"""
+    """三层 ALINCODE.md 加载器。"""
     project_root: str
     user_home: str = ""
     max_depth: int = 5
@@ -24,11 +24,11 @@ class Loader:
     def load(self) -> str:
         """按优先级加载三层指令文件，返回拼接后的完整指令文本。"""
         paths = [
-            (os.path.join(self.project_root, "MEWCODE.md"),
+            (os.path.join(self.project_root, "ALINCODE.md"),
              os.path.realpath(self.project_root)),
-            (os.path.join(self.project_root, ".Alincode", "MEWCODE.md"),
+            (os.path.join(self.project_root, ".Alincode", "ALINCODE.md"),
              os.path.realpath(self.project_root)),
-            (os.path.join(self.user_home, ".Alincode", "MEWCODE.md"),
+            (os.path.join(self.user_home, ".Alincode", "ALINCODE.md"),
              os.path.realpath(self.user_home + "/.Alincode")),
         ]
         parts: list[str] = []

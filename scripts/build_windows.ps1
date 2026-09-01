@@ -27,5 +27,7 @@ uv run pyinstaller --onedir --name AlinCode --noconfirm `
     --collect-all webview --collect-all Alincode.subagent.builtin `
     "$RepoRoot\Alincode\desktop_entry.py"
 
+Copy-Item -LiteralPath (Join-Path $RepoRoot "docs\windows-package-readme.md") `
+    -Destination (Join-Path $BundleRoot "README.md")
 Compress-Archive -Path (Join-Path $BundleRoot "*") -DestinationPath $Archive
 Write-Host "已生成：$Archive"
