@@ -5,6 +5,7 @@ import json
 import pytest
 
 from Alincode.profile.service import ProfileService
+from Alincode.profile import secrets
 from Alincode.profile.store import ProfileStore
 
 
@@ -69,3 +70,10 @@ def test_workspace_must_be_an_existing_directory(tmp_path):
     assert service.workspace(profile.id) == str(workspace.resolve())
     with pytest.raises(ValueError, match="项目目录不存在"):
         service.set_workspace(profile.id, tmp_path / "missing")
+
+
+def test_dpapi_refuses_non_windows_instead_of_storing_plaintext(monkeypatch):
+    monkeypatch.setattr(secrets.os, "name", "posix")
+
+    with pytest.raises(RuntimeError, match="仅支持 Windows"):
+        secrets.protect("test-api-key")
