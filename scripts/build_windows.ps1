@@ -23,7 +23,8 @@ try {
 
 uv run pyinstaller --onedir --name AlinCode --noconfirm `
     --distpath $OutputRoot --workpath $BuildRoot --specpath $BuildRoot `
-    --add-data "$RepoRoot\webui\dist;webui\dist" --collect-all webview `
+    --add-data "$RepoRoot\webui\dist;webui\dist" `
+    --collect-all webview --collect-all Alincode.subagent.builtin `
     "$RepoRoot\Alincode\__main__.py"
 
 Compress-Archive -Path (Join-Path $BundleRoot "*") -DestinationPath $Archive
