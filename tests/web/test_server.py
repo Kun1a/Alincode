@@ -145,6 +145,11 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    missing_workspace = tmp_path / "missing-workspace"
+    file_workspace = tmp_path / "not-a-directory.txt"
+    file_workspace.write_text("not a directory", encoding="utf-8")
+    assert client.put("/api/profile/workspace", json={"path": str(missing_workspace)}).status_code == 400
+    assert client.put("/api/profile/workspace", json={"path": str(file_workspace)}).status_code == 400
     assert client.put("/api/profile/workspace", json={"path": str(workspace)}).json() == {
         "path": str(workspace.resolve()),
     }
