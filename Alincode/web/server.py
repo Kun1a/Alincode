@@ -149,14 +149,20 @@ def create_app(
         fields = ("protocol", "model", "base_url", "api_key")
         if any(not isinstance(data.get(field), str) for field in fields):
             raise HTTPException(status_code=400, detail="Provider 配置字段格式错误")
-        if not all(data[field].strip() for field in ("protocol", "model", "api_key")):
-            raise HTTPException(status_code=400, detail="Provider、模型和 API Key 不能为空")
+        if not all(data[field].strip() for field in ("protocol", "model")):
+            raise HTTPException(status_code=400, detail="Provider 和模型不能为空")
+        api_key = data["api_key"].strip()
+        if not api_key:
+            try:
+                api_key = profile_service.provider_key(profile_id)
+            except FileNotFoundError as error:
+                raise HTTPException(status_code=400, detail="首次保存时 API Key 不能为空") from error
         profile_service.save_provider(
             profile_id,
             protocol=data["protocol"].strip(),
             model=data["model"].strip(),
             base_url=data["base_url"].strip(),
-            api_key=data["api_key"].strip(),
+            api_key=api_key,
         )
         return profile_service.provider_summary(profile_id)
 

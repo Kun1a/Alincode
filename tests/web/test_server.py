@@ -140,6 +140,13 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
         "api_key": "sk-••••1234",
     }
     assert "secret" not in client.get("/api/profile/provider").text
+    provider_without_new_key = client.put("/api/profile/provider", json={
+        "protocol": "anthropic", "model": "claude-renamed", "base_url": "https://api.example.com",
+        "api_key": "",
+    })
+    assert provider_without_new_key.status_code == 200
+    assert provider_without_new_key.json()["api_key"] == "sk-••••1234"
+    assert ProfileService(store).provider_key(profile["id"]) == "sk-secret1234"
 
     assert client.put("/api/profile/budget", json={"budget": 1000}).json()["budget"] == 1000
 
