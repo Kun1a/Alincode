@@ -149,3 +149,47 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
         "path": str(workspace.resolve()),
     }
     assert client.get("/api/profile/workspace").json() == {"path": str(workspace.resolve())}
+
+
+def test_profiles_keep_provider_budget_and_history_isolated(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    profile_service = ProfileService(store)
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+
+    profile_a = client.post("/api/profiles", json={"name": "A", "password": "a-pass"}).json()
+    assert client.put("/api/profile/provider", json={
+        "protocol": "openai", "model": "model-a", "base_url": "https://a.example", "api_key": "sk-key-a",
+    }).status_code == 200
+    assert client.put("/api/profile/budget", json={"budget": 11}).status_code == 200
+    profile_service.record_usage(profile_a["id"], input_tokens=1, output_tokens=2)
+    a_session_id = "20260901-000000-aa"
+    a_history = store.sessions_dir(profile_a["id"]) / a_session_id
+    a_history.mkdir()
+    (a_history / "conversation.jsonl").write_text('{"role":"user","content":"A","ts":1}\n', encoding="utf-8")
+
+    assert client.post("/api/profile/lock").status_code == 204
+    profile_b = client.post("/api/profiles", json={"name": "B", "password": "b-pass"}).json()
+    assert client.put("/api/profile/provider", json={
+        "protocol": "openai", "model": "model-b", "base_url": "https://b.example", "api_key": "sk-key-b",
+    }).status_code == 200
+    assert client.put("/api/profile/budget", json={"budget": 22}).status_code == 200
+    profile_service.record_usage(profile_b["id"], input_tokens=3, output_tokens=4)
+    b_session_id = "20260901-000000-bb"
+    b_history = store.sessions_dir(profile_b["id"]) / b_session_id
+    b_history.mkdir()
+    (b_history / "conversation.jsonl").write_text('{"role":"user","content":"B","ts":1}\n', encoding="utf-8")
+
+    assert client.get("/api/profile/provider").json()["model"] == "model-b"
+    assert client.get("/api/profile/budget").json()["budget"] == 22
+    assert client.get("/api/profile/budget").json()["used_tokens"] == 7
+    assert [item["id"] for item in client.get("/api/sessions").json()] == [b_session_id]
+
+    assert client.post("/api/profile/lock").status_code == 204
+    assert client.post(f"/api/profiles/{profile_a['id']}/unlock", json={"password": "a-pass"}).status_code == 200
+    assert client.get("/api/profile/provider").json()["model"] == "model-a"
+    assert client.get("/api/profile/budget").json()["budget"] == 11
+    assert client.get("/api/profile/budget").json()["used_tokens"] == 3
+    assert [item["id"] for item in client.get("/api/sessions").json()] == [a_session_id]
