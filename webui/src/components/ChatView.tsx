@@ -6,6 +6,7 @@ import { Composer } from "./Composer";
 import { StatusBar } from "./StatusBar";
 import { Sidebar } from "./Sidebar";
 import { SettingsDialog } from "./SettingsDialog";
+import { EnvironmentPanel } from "./EnvironmentPanel";
 import { useChat } from "../state/ChatContext";
 
 export function ChatView({ profile, onLock }: { profile: Profile | null; onLock: () => void }) {
@@ -20,6 +21,7 @@ export function ChatView({ profile, onLock }: { profile: Profile | null; onLock:
         <MessageList blocks={state.blocks} />
         <Composer />
       </div>
+      {profile ? <EnvironmentPanel /> : null}
       {settingsOpen ? <SettingsDialog onClose={() => setSettingsOpen(false)} onLock={() => { setSettingsOpen(false); void fetch("/api/profile/lock", { method: "POST" }).then(onLock); }} /> : null}
     </div>
   );

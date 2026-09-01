@@ -77,7 +77,7 @@ git commit -m "feat: retain chat environment state"
 - 新建：`webui/src/components/EnvironmentPanel.tsx`
 - 修改：`webui/src/components/ChatView.tsx`
 
-- [ ] **步骤 1：编写 `EnvironmentPanel` 的只读数据模型**
+- [x] **步骤 1：编写 `EnvironmentPanel` 的只读数据模型**
 
 组件只读取现有的 `/api/profile/provider`，不传递或保存 API Key。Provider 响应仅用于展示 `protocol` 和 `model`；请求失败时显示「未配置」。
 
@@ -93,11 +93,11 @@ useEffect(() => {
 }, []);
 ```
 
-- [ ] **步骤 2：使用现有 `useChat` 状态渲染环境摘要**
+- [x] **步骤 2：使用现有 `useChat` 状态渲染环境摘要**
 
 渲染连接状态、`state.model || provider?.model || "未配置模型"`、协议、`state.workspace || "尚未选择项目目录"`、`state.usedTokens` 与 `state.budget`。预算为 `0` 时只显示「未设置上限」，不得计算百分比。
 
-- [ ] **步骤 3：将环境栏接入桌面壳**
+- [x] **步骤 3：将环境栏接入桌面壳**
 
 在 `ChatView` 中仅当 `profile` 存在时渲染右栏，保留无 Profile 的 `--web` 调试入口：
 
@@ -109,13 +109,13 @@ useEffect(() => {
 </div>
 ```
 
-- [ ] **步骤 4：验证构建和空状态**
+- [x] **步骤 4：验证构建和空状态**
 
 运行：`npm run build`（工作目录：`webui`）。
 
 手工验证：在未设置预算或目录的 Profile 中打开桌面端，右栏分别显示「未设置上限」和「尚未选择项目目录」。
 
-- [ ] **步骤 5：提交**
+- [x] **步骤 5：提交**
 
 ```bash
 git add webui/src/components/EnvironmentPanel.tsx webui/src/components/ChatView.tsx

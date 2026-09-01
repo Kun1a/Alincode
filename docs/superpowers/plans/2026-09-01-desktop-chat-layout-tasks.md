@@ -29,7 +29,7 @@
 
 **验证：** `npm run build` 成功，且 `session.info` 字段没有未使用或类型错误。
 
-## T2：新增右侧环境栏
+## T2：新增右侧环境栏 ✅
 
 **文件：** `webui/src/components/EnvironmentPanel.tsx`、`webui/src/components/ChatView.tsx`
 
