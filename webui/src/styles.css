@@ -498,11 +498,17 @@ button:disabled {
 .workflow-dot { position: absolute; top: 14px; left: -5px; width: 9px; height: 9px; border: 2px solid #153749; border-radius: 50%; background: var(--chat-aqua); box-shadow: 0 0 0 3px rgba(103, 226, 212, .13); }
 .workflow-dot.is-running { background: var(--chat-accent); animation: workflow-pulse 1.25s ease-in-out infinite; }
 .workflow-dot.is-error { background: #ff8e99; }
+.workflow-dot.is-approval { background: var(--warn); box-shadow: 0 0 0 3px rgba(246, 200, 93, .14); }
 .workflow-step-line { display: flex; gap: 9px; padding-left: 15px; font-size: 11px; }
 .workflow-step-line strong { color: #dceef7; font-weight: 650; }
 .workflow-step-line time { margin-left: auto; color: var(--chat-faint); font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
 .workflow-detail { max-height: 10rem; margin: 7px 0 2px 15px; padding: 7px 9px; overflow: auto; color: var(--chat-muted); background: rgba(5, 18, 28, .56); border-radius: 7px; font: 10.5px/1.6 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .workflow-detail.result { color: #b9ddd8; }
+.workflow-approval { margin: 7px 0 2px 15px; }
+.workflow-approval .approval-args { margin: 0 0 .4rem; }
+.workflow-approval .approval-reason,
+.workflow-approval .approval-outcome { font-size: 11px; }
+.workflow-approval .approval-actions { margin-top: 7px; }
 @keyframes workflow-pulse { 50% { box-shadow: 0 0 0 6px rgba(72, 185, 242, 0); } }
 .msg.approval { max-width: 680px; color: #e7f2f8; background: rgba(47, 47, 25, .24); border-color: rgba(246, 200, 93, .65); border-radius: 10px; }
 .msg.notice { color: var(--chat-muted); }

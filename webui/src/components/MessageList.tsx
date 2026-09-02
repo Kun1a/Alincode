@@ -2,8 +2,11 @@
 import { useEffect, useRef } from "react";
 import type { Block } from "../lib/protocol";
 import { AssistantBlock } from "./AssistantBlock";
-import { ApprovalCard } from "./ApprovalCard";
-import { WorkflowBlock } from "./WorkflowBlock";
+import { WorkflowBlock, type WorkflowItem } from "./WorkflowBlock";
+
+function isWorkflowItem(block: Block): block is WorkflowItem {
+  return block.kind === "approval" || block.kind === "tool";
+}
 
 export function MessageList({ blocks }: { blocks: Block[] }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -15,12 +18,13 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
   return (
     <div className="message-list">
       {blocks.reduce<React.ReactNode[]>((items, b, i) => {
-        if (b.kind === "tool") {
+        if (isWorkflowItem(b)) {
           const previous = blocks[i - 1];
-          if (previous?.kind === "tool") return items;
-          const tools = blocks.slice(i).filter((block, offset) => offset === 0 || blocks[i + offset - 1]?.kind === "tool")
-            .filter((block): block is Extract<Block, { kind: "tool" }> => block.kind === "tool");
-          items.push(<WorkflowBlock key={`workflow-${i}`} blocks={tools} />);
+          if (previous && isWorkflowItem(previous)) return items;
+          const workflow = blocks.slice(i)
+            .filter((block, offset) => offset === 0 || isWorkflowItem(blocks[i + offset - 1]))
+            .filter(isWorkflowItem);
+          items.push(<WorkflowBlock key={`workflow-${i}`} blocks={workflow} />);
           return items;
         }
         if (b.kind === "user") assistantLabelShown = false;
@@ -34,9 +38,6 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
             break;
           case "assistant":
             content = <AssistantBlock block={b} />;
-            break;
-          case "approval":
-            content = <ApprovalCard block={b} />;
             break;
           case "notice":
             content = <div className={`msg notice ${b.tone}`}>{b.text}</div>;

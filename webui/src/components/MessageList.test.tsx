@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MessageList } from "./MessageList";
+
+vi.mock("../state/ChatContext", () => ({
+  useChat: () => ({ respondApproval: vi.fn() }),
+}));
 
 describe("MessageList", () => {
   it("groups consecutive tools into one workflow card", () => {
@@ -24,5 +28,16 @@ describe("MessageList", () => {
     ]} />);
 
     expect(html.match(/AlinCode/g)).toHaveLength(1);
+  });
+
+  it("groups an approval and its tool call into one workflow card", () => {
+    const html = renderToStaticMarkup(<MessageList blocks={[
+      { kind: "approval", requestId: "a1", toolName: "bash", toolArgs: '{"command":"echo 2"}', reason: "需要确认", state: "resolved", outcome: "allow_once" },
+      { kind: "tool", name: "bash", args: '{"command":"echo 2"}', state: "done", result: "exit_code: 0", isError: false, durationMs: 10 },
+    ]} />);
+
+    expect(html).toContain("已授权");
+    expect(html).toContain("已调用 · bash");
+    expect(html).not.toContain("message-row approval");
   });
 });

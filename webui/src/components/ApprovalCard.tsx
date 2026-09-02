@@ -8,11 +8,17 @@ const OUTCOMES = [
   ["deny_once", "拒绝"],
 ] as const;
 
-export function ApprovalCard({ block }: { block: Extract<Block, { kind: "approval" }> }) {
+export function ApprovalCard({
+  block,
+  compact = false,
+}: {
+  block: Extract<Block, { kind: "approval" }>;
+  compact?: boolean;
+}) {
   const { respondApproval } = useChat();
   return (
-    <div className={`msg approval ${block.state}`}>
-      <div className="approval-title">需要授权：{block.toolName}</div>
+    <div className={compact ? "workflow-approval" : `msg approval ${block.state}`}>
+      {!compact ? <div className="approval-title">需要授权：{block.toolName}</div> : null}
       <pre className="approval-args">{block.toolArgs}</pre>
       {block.reason ? <div className="approval-reason">{block.reason}</div> : null}
       {block.state === "pending" ? (
