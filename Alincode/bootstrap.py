@@ -72,10 +72,11 @@ async def build_context(
     *,
     workspace: str | None = None,
     provider_override: ProviderConfig | None = None,
+    mcp_servers_override: dict | None = None,
 ) -> AppContext:
     """执行全部共享装配，返回 AppContext。主体逻辑搬自 driver._amain，语义不变。"""
     if config_path is None and provider_override is not None:
-        app_cfg = AppConfig()
+        app_cfg = AppConfig(mcp_servers=mcp_servers_override or {})
     else:
         config_path = resolve_config_path(config_path)
         app_cfg = ConfigLoader.load(config_path)

@@ -238,6 +238,25 @@ def create_app(
         assert profile_service is not None
         return profile_service.workspaces(profile_id)
 
+    @app.put("/api/profile/mcp")
+    async def save_mcp_servers(request: Request) -> dict:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        data = await request.json()
+        if not isinstance(data, dict) or not isinstance(data.get("servers"), dict):
+            raise HTTPException(status_code=400, detail="MCP Server 配置格式错误")
+        try:
+            profile_service.save_mcp_servers(profile_id, data["servers"])
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"servers": profile_service.mcp_servers(profile_id)}
+
+    @app.get("/api/profile/mcp")
+    async def mcp_servers(request: Request) -> dict:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        return {"servers": profile_service.mcp_servers(profile_id)}
+
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:
         return [
@@ -269,6 +288,7 @@ def create_app(
                 session_ctx = await build_context(
                     workspace=workspace,
                     provider_override=profile_service.provider_config(profile_id),
+                    mcp_servers_override=profile_service.mcp_servers(profile_id),
                 )
                 owns_context = True
             except HTTPException:

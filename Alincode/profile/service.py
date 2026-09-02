@@ -47,6 +47,36 @@ class ProfileService:
             api_key=self.provider_key(profile_id),
         )
 
+    def save_mcp_servers(self, profile_id: str, servers: dict) -> None:
+        """保存不含密钥的 MCP Server 定义，敏感环境变量暂不由 Web UI 管理。"""
+        if not isinstance(servers, dict):
+            raise ValueError("MCP Server 配置格式错误")
+        normalized: dict[str, dict[str, str | list[str]]] = {}
+        for name, config in servers.items():
+            if not isinstance(name, str) or not name.strip() or not isinstance(config, dict):
+                raise ValueError("MCP Server 配置格式错误")
+            server_type = config.get("type")
+            if server_type not in ("stdio", "http"):
+                raise ValueError("MCP Server 类型必须是 stdio 或 http")
+            entry: dict[str, str | list[str]] = {"type": server_type}
+            if server_type == "stdio":
+                command = config.get("command")
+                args = config.get("args", [])
+                if not isinstance(command, str) or not command.strip() or not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+                    raise ValueError("stdio MCP Server 需要命令和字符串参数列表")
+                entry.update(command=command.strip(), args=args)
+            else:
+                url = config.get("url")
+                if not isinstance(url, str) or not url.strip():
+                    raise ValueError("HTTP MCP Server 需要 URL")
+                entry["url"] = url.strip()
+            normalized[name.strip()] = entry
+        self._write_json(self._store.profile_dir(profile_id) / "mcp.json", normalized)
+
+    def mcp_servers(self, profile_id: str) -> dict:
+        path = self._store.profile_dir(profile_id) / "mcp.json"
+        return self._read_json(path) if path.is_file() else {}
+
     def set_budget(self, profile_id: str, budget: int) -> None:
         if budget < 0:
             raise ValueError("预算不能为负数")

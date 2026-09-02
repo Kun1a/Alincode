@@ -201,6 +201,22 @@ def test_profile_workspaces_can_keep_multiple_projects_and_switch_default(tmp_pa
     assert client.get("/api/profile/workspaces").json() == saved.json()
 
 
+def test_profile_mcp_api_saves_a_stdio_server(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    client.post("/api/profiles", json={"name": "Alin", "password": "secret"})
+    servers = {"filesystem": {"type": "stdio", "command": "npx", "args": ["-y", "server"]}}
+
+    saved = client.put("/api/profile/mcp", json={"servers": servers})
+
+    assert saved.status_code == 200
+    assert saved.json() == {"servers": servers}
+    assert client.get("/api/profile/mcp").json() == {"servers": servers}
+
+
 def test_profiles_keep_provider_budget_and_history_isolated(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     profile_service = ProfileService(store)

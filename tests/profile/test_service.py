@@ -91,6 +91,17 @@ def test_profile_can_keep_multiple_workspaces_and_choose_an_active_one(tmp_path)
     assert service.workspace(profile.id) == str(project_b.resolve())
 
 
+def test_profile_mcp_servers_are_saved_without_provider_configuration(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    profile = store.create("Alin", "correct-password")
+    service = ProfileService(store)
+    servers = {"filesystem": {"type": "stdio", "command": "npx", "args": ["-y", "server"]}}
+
+    service.save_mcp_servers(profile.id, servers)
+
+    assert service.mcp_servers(profile.id) == servers
+
+
 def test_dpapi_refuses_non_windows_instead_of_storing_plaintext(monkeypatch):
     monkeypatch.setattr(secrets.os, "name", "posix")
 
