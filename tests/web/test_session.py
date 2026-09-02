@@ -13,6 +13,7 @@ from Alincode.profile.service import ProfileService
 from Alincode.profile.store import ProfileStore
 from Alincode.tools import Registry
 from Alincode.web.session import WebSession
+from Alincode.session.list import list_sessions
 
 # 复用 tests/test_agent.py 的 Fake 设施
 from tests.test_agent import FakeProvider, FakeWriteTool
@@ -154,3 +155,15 @@ async def test_new_session_keeps_the_unlocked_profile_context(tmp_path):
     assert info["session_id"] != original["session_id"]
     assert info["workspace"] == str(tmp_path)
     assert history == {"type": "history", "session_id": info["session_id"], "blocks": []}
+
+
+@pytest.mark.asyncio
+async def test_opening_and_closing_an_empty_web_session_does_not_create_history(tmp_path):
+    """仅打开应用而不发送消息时，不应持久化空会话。"""
+    session_root = tmp_path / "sessions"
+    ws = WebSession(_ctx(tmp_path, FakeProvider([]), Registry()), session_root=str(session_root))
+
+    await ws.open()
+    await ws.close()
+
+    assert list_sessions(str(session_root)) == []

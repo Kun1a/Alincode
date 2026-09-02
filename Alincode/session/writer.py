@@ -50,22 +50,28 @@ class Entry:
 
 
 class Writer:
-    """向 conversation.jsonl 追加写入。"""
+    """向 conversation.jsonl 追加写入，首条消息前不创建空会话文件。"""
 
     def __init__(self, session_dir: str) -> None:
-        os.makedirs(session_dir, exist_ok=True)
+        self._session_dir = session_dir
         self._path = os.path.join(session_dir, "conversation.jsonl")
         self._lock = threading.Lock()
-        self._file = open(self._path, "ab")
+        self._file = None
 
     @classmethod
     def open_existing(cls, session_dir: str) -> "Writer":
         """以追加模式打开已有会话。"""
         inst = cls.__new__(cls)
+        inst._session_dir = session_dir
         inst._path = os.path.join(session_dir, "conversation.jsonl")
         inst._lock = threading.Lock()
         inst._file = open(inst._path, "ab")
         return inst
+
+    def _ensure_open(self) -> None:
+        if self._file is None:
+            os.makedirs(self._session_dir, exist_ok=True)
+            self._file = open(self._path, "ab")
 
     def append(self, msg: Message, model: str = "", is_first: bool = False) -> None:
         """追加一条消息到 JSONL。"""
@@ -73,6 +79,7 @@ class Writer:
         _dict = _entry_to_dict(entry, is_first=is_first)
         line = json.dumps(_dict, ensure_ascii=False) + "\n"
         with self._lock:
+            self._ensure_open()
             self._file.write(line.encode("utf-8"))
             self._file.flush()
             os.fsync(self._file.fileno())
@@ -83,12 +90,15 @@ class Writer:
         _dict = {"type": "compact", "ts": entry.ts}
         line = json.dumps(_dict, ensure_ascii=False) + "\n"
         with self._lock:
+            self._ensure_open()
             self._file.write(line.encode("utf-8"))
             self._file.flush()
             os.fsync(self._file.fileno())
 
     def append_all(self, msgs: list[Message]) -> None:
         """批量追加消息列表，只做一次 fsync。"""
+        if not msgs:
+            return
         lines: list[str] = []
         for msg in msgs:
             entry = Entry.from_message(msg, is_first=False)
@@ -96,6 +106,7 @@ class Writer:
             lines.append(json.dumps(_dict, ensure_ascii=False))
         data = "\n".join(lines) + "\n"
         with self._lock:
+            self._ensure_open()
             self._file.write(data.encode("utf-8"))
             self._file.flush()
             os.fsync(self._file.fileno())
@@ -103,7 +114,8 @@ class Writer:
     def close(self) -> None:
         with self._lock:
             try:
-                self._file.close()
+                if self._file is not None:
+                    self._file.close()
             except Exception:
                 pass
 
