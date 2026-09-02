@@ -26,7 +26,7 @@ export type ServerMsg =
   | { type: "turn.error"; message: string };
 
 export type ClientMsg =
-  | { type: "chat.send"; text: string }
+  | { type: "chat.send"; text: string; attachments?: string[] }
   | { type: "approval.respond"; request_id: string; outcome: "allow_once" | "allow_forever" | "deny_once" }
   | { type: "turn.cancel" }
   | { type: "session.resume"; session_id: string }

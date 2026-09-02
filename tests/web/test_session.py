@@ -225,3 +225,20 @@ async def test_opening_and_closing_an_empty_web_session_does_not_create_history(
     await ws.close()
 
     assert list_sessions(str(session_root)) == []
+
+
+@pytest.mark.asyncio
+async def test_attached_file_content_is_injected_only_into_the_current_turn(tmp_path):
+    source = tmp_path / "context.txt"
+    source.write_text("attached content", encoding="utf-8")
+    provider = FakeProvider([[StreamEvent(done=True)]])
+    ws = WebSession(_ctx(tmp_path, provider, Registry()))
+    await ws.open()
+
+    await ws.send_user("分析这个文件", [str(source)])
+    await _collect_until(ws, "turn.done")
+
+    assert provider.last_req is not None
+    assert provider.last_req.messages[-1].content == "分析这个文件"
+    assert "context.txt" in provider.last_req.reminder
+    assert "attached content" in provider.last_req.reminder

@@ -22,6 +22,7 @@ from Alincode.permission import ApprovalRequest, Mode, Outcome
 from Alincode.profile.service import ProfileService
 from Alincode.prompts import SYSTEM_PROMPT
 from Alincode.web.protocol import project_event, project_messages
+from Alincode.web.attachments import load_attachments, render_attachment_context
 
 OUTCOME_MAP = {
     "allow_once": Outcome.ALLOW_ONCE,
@@ -83,7 +84,10 @@ class WebSession:
     async def handle(self, data: dict) -> None:
         t = data.get("type")
         if t == "chat.send":
-            await self.send_user(str(data.get("text", "")))
+            paths = data.get("attachments", [])
+            await self.send_user(
+                str(data.get("text", "")), paths if isinstance(paths, list) else [],
+            )
         elif t == "approval.respond":
             await self.respond_approval(str(data.get("request_id", "")),
                                         str(data.get("outcome", "")))
@@ -101,7 +105,7 @@ class WebSession:
 
     # ── 用户消息 → 新轮次（对应 app.py:695-718）──────
 
-    async def send_user(self, text: str) -> None:
+    async def send_user(self, text: str, attachment_paths: list[str] | None = None) -> None:
         text = text.strip()
         if not text:
             return
@@ -130,6 +134,17 @@ class WebSession:
                                   "text": f"[hook {result.blocking_hook_id}] {result.reason}"})
                 return
             self.bundle.runtime.append_reminders(result.injected_prompts)
+
+        if attachment_paths:
+            if not all(isinstance(path, str) for path in attachment_paths):
+                await self._emit({"type": "notice", "text": "附件路径格式错误。"})
+                return
+            try:
+                attachments = load_attachments(attachment_paths)
+            except (OSError, ValueError) as error:
+                await self._emit({"type": "notice", "text": str(error)})
+                return
+            self.bundle.runtime.append_reminders([render_attachment_context(attachments)])
 
         self._save_workspace_metadata()
         self.bundle.conv.add_user(text)

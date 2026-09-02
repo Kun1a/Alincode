@@ -220,6 +220,23 @@ def test_desktop_folder_picker_returns_a_valid_directory_for_project_selection(t
     assert picked.json() == {"path": str(selected.resolve())}
 
 
+def test_desktop_file_picker_returns_selected_files(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    selected = tmp_path / "notes.md"
+    selected.write_text("notes", encoding="utf-8")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+        file_picker=lambda: [str(selected)],
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    client.post("/api/profiles", json={"name": "Alin", "password": "secret"})
+
+    picked = client.post("/api/profile/pick-files")
+
+    assert picked.status_code == 200
+    assert picked.json() == {"paths": [str(selected.resolve())]}
+
+
 def test_desktop_skill_directory_opener_uses_the_active_project(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     opened: list[str] = []

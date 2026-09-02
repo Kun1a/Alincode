@@ -86,6 +86,19 @@ def pick_folder() -> str | None:
         root.destroy()
 
 
+def pick_files() -> tuple[str, ...]:
+    """使用 Windows 原生多文件选择器，取消时返回空元组。"""
+    from tkinter import Tk, filedialog
+
+    root = Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        return tuple(filedialog.askopenfilenames(title="选择文件作为上下文"))
+    finally:
+        root.destroy()
+
+
 def open_directory(path: str) -> None:
     """让用户用资源管理器添加或编辑项目级 Skill。"""
     os.startfile(path)
@@ -100,6 +113,7 @@ def run_desktop() -> None:
         profile_store=ProfileStore(),
         directory_picker=pick_folder,
         directory_opener=open_directory,
+        file_picker=pick_files,
     )
     server = LoopbackServer(app)
     port = server.start()

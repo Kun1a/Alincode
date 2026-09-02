@@ -9,7 +9,7 @@ import mimetypes
 import os
 import sys
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -38,6 +38,7 @@ def create_app(
     profile_store: ProfileStore | None = None,
     directory_picker: Callable[[], str | None] | None = None,
     directory_opener: Callable[[str], None] | None = None,
+    file_picker: Callable[[], Sequence[str]] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AlinCode WebUI")
     sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions") if ctx else None
@@ -254,6 +255,21 @@ def create_app(
             return {"path": str(Path(path).expanduser().resolve(strict=True))}
         except OSError as error:
             raise HTTPException(status_code=400, detail="选择的目录不可用") from error
+
+    @app.post("/api/profile/pick-files")
+    async def pick_files(request: Request) -> dict[str, list[str]]:
+        _unlocked_profile(request)
+        if file_picker is None:
+            raise HTTPException(status_code=501, detail="当前入口不支持打开文件选择器")
+        paths = []
+        for path in file_picker():
+            try:
+                resolved = Path(path).expanduser().resolve(strict=True)
+            except OSError:
+                continue
+            if resolved.is_file():
+                paths.append(str(resolved))
+        return {"paths": paths}
 
     @app.put("/api/profile/mcp")
     async def save_mcp_servers(request: Request) -> dict:

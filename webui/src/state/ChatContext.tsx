@@ -11,7 +11,7 @@ import { chatReducer, initialChatState, type ChatState } from "./chatReducer";
 
 interface ChatApi {
   state: ChatState;
-  sendText: (text: string) => void;
+  sendText: (text: string, attachments?: string[]) => void;
   respondApproval: (requestId: string, outcome: "allow_once" | "allow_forever" | "deny_once") => void;
   cancelTurn: () => void;
   resumeSession: (sessionId: string) => void;
@@ -69,9 +69,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const api = useMemo<ChatApi>(() => ({
     state,
-    sendText: (text) => {
+    sendText: (text, attachments) => {
       dispatch({ type: "__local.busy", busy: true }); // 乐观置位，turn.done/error 复位
-      send({ type: "chat.send", text });
+      send({ type: "chat.send", text, attachments });
     },
     respondApproval: (requestId, outcome) =>
       send({ type: "approval.respond", request_id: requestId, outcome }),
