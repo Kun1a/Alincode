@@ -10,7 +10,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from Alincode.bootstrap import AppContext
 from Alincode.core_session import SessionBundle, create_session
@@ -34,6 +37,7 @@ class WebSession:
         session_root: str | None = None,
         profile_service: ProfileService | None = None,
         profile_id: str | None = None,
+        context_factory: Callable[[str], Awaitable[AppContext]] | None = None,
     ) -> None:
         if (profile_service is None) != (profile_id is None):
             raise ValueError("Profile 用量统计需要同时提供服务和标识")
@@ -41,6 +45,7 @@ class WebSession:
         self._session_root = session_root
         self._profile_service = profile_service
         self._profile_id = profile_id
+        self._context_factory = context_factory
         self.bundle: SessionBundle = create_session(ctx, session_root=session_root)
         self.outbox: asyncio.Queue[dict] = asyncio.Queue()
         self._approvals: dict[str, ApprovalRequest] = {}
@@ -87,7 +92,8 @@ class WebSession:
         elif t == "session.resume":
             await self.resume(str(data.get("session_id", "")))
         elif t == "session.new":
-            await self.new_session()
+            workspace = data.get("workspace")
+            await self.new_session(workspace if isinstance(workspace, str) else None)
         elif t == "mode.set":
             await self.set_mode(str(data.get("mode", "")))
         else:
@@ -125,6 +131,7 @@ class WebSession:
                 return
             self.bundle.runtime.append_reminders(result.injected_prompts)
 
+        self._save_workspace_metadata()
         self.bundle.conv.add_user(text)
         await self._emit({"type": "history.append",
                           "block": {"kind": "user", "content": text}})
@@ -193,10 +200,13 @@ class WebSession:
             "mode": self._mode.value,
         })
 
-    async def new_session(self) -> None:
+    async def new_session(self, workspace: str | None = None) -> None:
         if self.busy:
             await self._emit({"type": "notice", "text": "请等待当前任务完成后再新建对话。"})
             return
+        if workspace:
+            if not await self._switch_workspace(workspace):
+                return
         old = self.bundle
         self.bundle = create_session(self._ctx, session_root=self._session_root)
         old.writer.close()
@@ -223,6 +233,9 @@ class WebSession:
         if not os.path.isdir(session_dir):
             await self._emit({"type": "notice", "text": f"会话 {session_id} 不存在。"})
             return
+        workspace = self._load_workspace_metadata(session_dir)
+        if workspace and not await self._switch_workspace(workspace):
+            return
         old = self.bundle
         self.bundle = create_session(
             self._ctx, resume_id=session_id, session_root=self._session_root,
@@ -238,6 +251,36 @@ class WebSession:
 
     async def _emit(self, msg: dict) -> None:
         await self.outbox.put(msg)
+
+    async def _switch_workspace(self, workspace: str) -> bool:
+        """为选择的项目构建独立上下文，防止工具仍在旧目录执行。"""
+        requested = str(Path(workspace).expanduser().resolve())
+        if requested == self._ctx.workspace:
+            return True
+        if self._context_factory is None:
+            await self._emit({"type": "notice", "text": "当前入口不支持切换项目目录。"})
+            return False
+        try:
+            self._ctx = await self._context_factory(requested)
+        except (FileNotFoundError, ValueError) as error:
+            await self._emit({"type": "notice", "text": str(error)})
+            return False
+        return True
+
+    def _save_workspace_metadata(self) -> None:
+        """仅在首条真实消息时落盘，空白新对话不会进入历史列表。"""
+        metadata = Path(self.bundle.runtime.session.session_dir) / "session.json"
+        metadata.parent.mkdir(parents=True, exist_ok=True)
+        metadata.write_text(json.dumps({"workspace": self._ctx.workspace}), encoding="utf-8")
+
+    @staticmethod
+    def _load_workspace_metadata(session_dir: str) -> str | None:
+        try:
+            data = json.loads((Path(session_dir) / "session.json").read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+        workspace = data.get("workspace") if isinstance(data, dict) else None
+        return workspace if isinstance(workspace, str) and workspace else None
 
     async def _dispatch(self, event: HookEvent) -> None:
         if self._ctx.hook_engine is None:

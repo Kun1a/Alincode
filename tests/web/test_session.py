@@ -158,6 +158,62 @@ async def test_new_session_keeps_the_unlocked_profile_context(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_new_session_can_bind_to_the_selected_workspace(tmp_path):
+    """新对话应使用用户在项目选择器中选择的目录，而非旧的默认目录。"""
+    project_b = tmp_path / "project-b"
+    project_b.mkdir()
+    initial = _ctx(tmp_path, FakeProvider([]), Registry())
+    selected = _ctx(project_b, FakeProvider([]), Registry())
+
+    async def context_for_workspace(path: str) -> AppContext:
+        assert path == str(project_b)
+        return selected
+
+    ws = WebSession(initial, context_factory=context_for_workspace)
+    await ws.open()
+    await _next_of(ws, "session.info")
+
+    await ws.handle({"type": "session.new", "workspace": str(project_b)})
+
+    info = await _next_of(ws, "session.info")
+    assert info["workspace"] == str(project_b)
+    assert ws._ctx is selected
+
+
+@pytest.mark.asyncio
+async def test_resumed_session_restores_its_saved_workspace(tmp_path):
+    """历史会话回到创建时的项目目录，不能被当前默认项目覆盖。"""
+    project_b = tmp_path / "project-b"
+    project_b.mkdir()
+    session_root = tmp_path / "sessions"
+    initial = _ctx(tmp_path, FakeProvider([]), Registry())
+    selected = _ctx(project_b, FakeProvider([]), Registry())
+
+    async def context_for_workspace(path: str) -> AppContext:
+        assert path == str(project_b)
+        return selected
+
+    ws = WebSession(initial, session_root=str(session_root), context_factory=context_for_workspace)
+    await ws.open()
+    await _next_of(ws, "session.info")
+    await ws.handle({"type": "session.new", "workspace": str(project_b)})
+    info = await _next_of(ws, "session.info")
+    await _next_of(ws, "history")
+    await ws.send_user("保存这个项目目录")
+    await _collect_until(ws, "turn.done")
+    await ws.close()
+
+    resumed = WebSession(initial, session_root=str(session_root), context_factory=context_for_workspace)
+    await resumed.open()
+    await _next_of(resumed, "session.info")
+    await resumed.resume(info["session_id"])
+
+    history = await _next_of(resumed, "history")
+    assert history["session_id"] == info["session_id"]
+    assert resumed._ctx is selected
+
+
+@pytest.mark.asyncio
 async def test_opening_and_closing_an_empty_web_session_does_not_create_history(tmp_path):
     """仅打开应用而不发送消息时，不应持久化空会话。"""
     session_root = tmp_path / "sessions"

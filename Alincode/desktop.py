@@ -72,6 +72,19 @@ class LoopbackServer:
         asyncio.run(self._server.serve(sockets=[self._socket]))
 
 
+def pick_folder() -> str | None:
+    """使用 Windows 原生目录选择框；取消时保持当前项目不变。"""
+    from tkinter import Tk, filedialog
+
+    root = Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        return filedialog.askdirectory(title="选择项目目录") or None
+    finally:
+        root.destroy()
+
+
 def run_desktop() -> None:
     """启动桌面窗口；关闭窗口后同步关闭临时回环服务。"""
     launch_token = secrets.token_urlsafe(32)
@@ -79,6 +92,7 @@ def run_desktop() -> None:
         None,
         auth=LocalAuth(launch_token),
         profile_store=ProfileStore(),
+        directory_picker=pick_folder,
     )
     server = LoopbackServer(app)
     port = server.start()

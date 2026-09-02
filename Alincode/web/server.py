@@ -9,6 +9,7 @@ import mimetypes
 import os
 import sys
 from pathlib import Path
+from collections.abc import Callable
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
@@ -35,6 +36,7 @@ def create_app(
     *,
     auth: LocalAuth | None = None,
     profile_store: ProfileStore | None = None,
+    directory_picker: Callable[[], str | None] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AlinCode WebUI")
     sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions") if ctx else None
@@ -239,6 +241,19 @@ def create_app(
         assert profile_service is not None
         return profile_service.workspaces(profile_id)
 
+    @app.post("/api/profile/pick-folder")
+    async def pick_folder(request: Request) -> dict[str, str]:
+        _unlocked_profile(request)
+        if directory_picker is None:
+            raise HTTPException(status_code=501, detail="当前入口不支持打开文件夹选择器")
+        path = directory_picker()
+        if not path:
+            return {"path": ""}
+        try:
+            return {"path": str(Path(path).expanduser().resolve(strict=True))}
+        except OSError as error:
+            raise HTTPException(status_code=400, detail="选择的目录不可用") from error
+
     @app.put("/api/profile/mcp")
     async def save_mcp_servers(request: Request) -> dict:
         _, profile_id = _unlocked_profile(request)
@@ -298,11 +313,16 @@ def create_app(
                 workspace = profile_service.workspace(profile_id)
                 if workspace is None:
                     raise ValueError("请先选择项目目录")
-                session_ctx = await build_context(
-                    workspace=workspace,
-                    provider_override=profile_service.provider_config(profile_id),
-                    mcp_servers_override=profile_service.mcp_servers(profile_id),
-                )
+                async def context_for_workspace(path: str) -> AppContext:
+                    allowed = profile_service.workspaces(profile_id)["paths"]
+                    if path not in allowed:
+                        raise ValueError("请选择已保存的项目目录")
+                    return await build_context(
+                        workspace=path,
+                        provider_override=profile_service.provider_config(profile_id),
+                        mcp_servers_override=profile_service.mcp_servers(profile_id),
+                    )
+                session_ctx = await context_for_workspace(workspace)
                 owns_context = True
             except HTTPException:
                 await ws.close(code=1008)
@@ -322,6 +342,7 @@ def create_app(
             session_root=session_root,
             profile_service=profile_service,
             profile_id=profile_id,
+            context_factory=context_for_workspace if auth is not None else None,
         )
 
         async def _pump() -> None:
@@ -344,7 +365,7 @@ def create_app(
             with contextlib.suppress(asyncio.CancelledError):
                 await pump
             if owns_context:
-                await shutdown_context(session_ctx)
+                await shutdown_context(session._ctx)
 
     # 静态前端（构建后）。dist 不存在时给提示页，避免 404 困惑。
     frontend_dist = webui_dist()

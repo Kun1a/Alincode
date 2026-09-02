@@ -201,6 +201,25 @@ def test_profile_workspaces_can_keep_multiple_projects_and_switch_default(tmp_pa
     assert client.get("/api/profile/workspaces").json() == saved.json()
 
 
+def test_desktop_folder_picker_returns_a_valid_directory_for_project_selection(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    selected = tmp_path / "picked-project"
+    selected.mkdir()
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])),
+        auth=LocalAuth("launch"),
+        profile_store=store,
+        directory_picker=lambda: str(selected),
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    client.post("/api/profiles", json={"name": "Alin", "password": "secret"})
+
+    picked = client.post("/api/profile/pick-folder")
+
+    assert picked.status_code == 200
+    assert picked.json() == {"path": str(selected.resolve())}
+
+
 def test_profile_mcp_api_saves_a_stdio_server(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     client = TestClient(create_app(
