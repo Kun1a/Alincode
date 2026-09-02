@@ -18,6 +18,7 @@ from Alincode.session.list import list_sessions
 from Alincode.session.load import load_session
 from Alincode.profile.store import ProfileStore
 from Alincode.profile.service import ProfileService
+from Alincode.skills.catalog import Catalog
 from Alincode.web.auth import LocalAuth
 from Alincode.web.protocol import project_messages
 from Alincode.web.session import WebSession
@@ -256,6 +257,18 @@ def create_app(
         _, profile_id = _unlocked_profile(request)
         assert profile_service is not None
         return {"servers": profile_service.mcp_servers(profile_id)}
+
+    @app.get("/api/profile/skills")
+    async def profile_skills(request: Request) -> list[dict[str, str]]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        workspace = profile_service.workspace(profile_id)
+        if workspace is None:
+            raise HTTPException(status_code=400, detail="请先选择项目目录")
+        return [
+            {"name": skill.meta.name, "description": skill.meta.description, "source": skill.source.value}
+            for skill in Catalog.load(workspace).list()
+        ]
 
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:

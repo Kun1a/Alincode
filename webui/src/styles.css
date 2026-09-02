@@ -91,6 +91,7 @@ body {
 .workspace-list > div { display: flex; align-items: center; gap: .5rem; padding: .45rem .55rem; background: #0c141b; border: 1px solid var(--border); border-radius: 7px; }
 .workspace-list span { flex: 1; overflow: hidden; color: var(--dim); font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-list button { color: #e9b8be; }
+.settings-hint { color: var(--dim); font-size: .75rem; line-height: 1.5; }
 .settings-dialog footer { margin-top: 1.25rem; }
 .settings-message { color: var(--accent); font-size: .86rem; }
 @media (max-width: 760px) { .sidebar { display: none; } }

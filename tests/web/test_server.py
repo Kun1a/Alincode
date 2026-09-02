@@ -217,6 +217,25 @@ def test_profile_mcp_api_saves_a_stdio_server(tmp_path):
     assert client.get("/api/profile/mcp").json() == {"servers": servers}
 
 
+def test_profile_skills_lists_project_skills(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    profile = client.post("/api/profiles", json={"name": "Alin", "password": "secret"}).json()
+    project = tmp_path / "project"
+    skill_dir = project / ".Alincode" / "skills" / "hello"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: hello\ndescription: Hello skill\n---\n", encoding="utf-8")
+    ProfileService(store).set_workspace(profile["id"], project)
+
+    skills = client.get("/api/profile/skills")
+
+    assert skills.status_code == 200
+    assert {"name": "hello", "description": "Hello skill", "source": "project"} in skills.json()
+
+
 def test_profiles_keep_provider_budget_and_history_isolated(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     profile_service = ProfileService(store)

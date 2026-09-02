@@ -4,6 +4,7 @@ interface Props { onClose: () => void; onLock: () => void; }
 type Provider = { protocol: string; model: string; base_url: string; api_key: string };
 type Workspaces = { paths: string[]; active_path: string };
 type McpServer = { type: "stdio"; command: string; args: string[] } | { type: "http"; url: string };
+type Skill = { name: string; description: string; source: string };
 
 async function json(path: string, init?: RequestInit) {
   const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
@@ -25,6 +26,7 @@ export function SettingsDialog({ onClose, onLock }: Props) {
   const [mcpCommand, setMcpCommand] = useState("");
   const [mcpArgs, setMcpArgs] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
+  const [skills, setSkills] = useState<Skill[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => { void Promise.all([
@@ -32,9 +34,10 @@ export function SettingsDialog({ onClose, onLock }: Props) {
     json("/api/profile/workspaces") as Promise<Workspaces>,
     json("/api/profile/budget") as Promise<{ budget: number }>,
     json("/api/profile/mcp") as Promise<{ servers: Record<string, McpServer> }>,
-  ]).then(([saved, directory, usage, mcp]) => {
+    fetch("/api/profile/skills").then(async r => r.ok ? r.json() as Promise<Skill[]> : []),
+  ]).then(([saved, directory, usage, mcp, loadedSkills]) => {
     if (saved) setProvider({ ...saved, api_key: "" });
-    setWorkspaces(directory); setWorkspaceInput(directory.active_path); setBudget(String(usage.budget)); setMcpServers(mcp.servers);
+    setWorkspaces(directory); setWorkspaceInput(directory.active_path); setBudget(String(usage.budget)); setMcpServers(mcp.servers); setSkills(loadedSkills);
   }).catch(error => setMessage(error instanceof Error ? error.message : "无法读取设置")); }, []);
 
   const save = async (event: FormEvent) => {
@@ -92,6 +95,8 @@ export function SettingsDialog({ onClose, onLock }: Props) {
       {mcpType === "stdio" ? <><label>启动命令<input value={mcpCommand} onChange={e => setMcpCommand(e.target.value)} placeholder="npx" /></label><label>参数（空格分隔）<input value={mcpArgs} onChange={e => setMcpArgs(e.target.value)} placeholder="-y @modelcontextprotocol/server-filesystem" /></label></> : <label>MCP URL<input value={mcpUrl} onChange={e => setMcpUrl(e.target.value)} placeholder="https://example.com/mcp" /></label>}
       <button type="button" onClick={addMcpServer}>加入 MCP Server</button>
       {Object.keys(mcpServers).length ? <div className="workspace-list">{Object.entries(mcpServers).map(([name, server]) => <div key={name}><span>{name} · {server.type === "stdio" ? server.command : server.url}</span><button type="button" onClick={() => setMcpServers(current => { const next = { ...current }; delete next[name]; return next; })}>移除</button></div>)}</div> : null}
+      <label>已发现 Skill<span className="settings-hint">项目级 Skill 放在 <code>.Alincode/skills/&lt;名称&gt;/SKILL.md</code>；下一轮对话会重新扫描。</span></label>
+      {skills.length ? <div className="workspace-list">{skills.map(skill => <div key={skill.name}><span>{skill.name} · {skill.description}（{skill.source}）</span></div>)}</div> : <p className="settings-hint">当前项目没有可用 Skill。</p>}
       <label>本地 token 预算（0 为不限）<input type="number" min="0" value={budget} onChange={e => setBudget(e.target.value)} /></label>
       {message ? <p className="settings-message">{message}</p> : null}
       <footer><button type="button" className="text-button" onClick={onLock}>锁定 Profile</button><button className="primary-button">保存设置</button></footer>
