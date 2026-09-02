@@ -242,6 +242,13 @@ class WebSession:
         )
         old.writer.close()
         await self._emit({
+            "type": "session.info",
+            "session_id": self.bundle.session_id,
+            "workspace": self._ctx.workspace,
+            "model": self._ctx.provider_cfg.model,
+            "mode": self._mode.value,
+        })
+        await self._emit({
             "type": "history",
             "session_id": session_id,
             "blocks": project_messages(self.bundle.conv.messages),

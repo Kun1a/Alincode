@@ -208,7 +208,9 @@ async def test_resumed_session_restores_its_saved_workspace(tmp_path):
     await _next_of(resumed, "session.info")
     await resumed.resume(info["session_id"])
 
+    restored_info = await _next_of(resumed, "session.info")
     history = await _next_of(resumed, "history")
+    assert restored_info["workspace"] == str(project_b)
     assert history["session_id"] == info["session_id"]
     assert resumed._ctx is selected
 
