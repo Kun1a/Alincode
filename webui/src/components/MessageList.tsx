@@ -2,8 +2,8 @@
 import { useEffect, useRef } from "react";
 import type { Block } from "../lib/protocol";
 import { AssistantBlock } from "./AssistantBlock";
-import { ToolBlock } from "./ToolBlock";
 import { ApprovalCard } from "./ApprovalCard";
+import { WorkflowBlock } from "./WorkflowBlock";
 
 export function MessageList({ blocks }: { blocks: Block[] }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -13,7 +13,15 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
 
   return (
     <div className="message-list">
-      {blocks.map((b, i) => {
+      {blocks.reduce<React.ReactNode[]>((items, b, i) => {
+        if (b.kind === "tool") {
+          const previous = blocks[i - 1];
+          if (previous?.kind === "tool") return items;
+          const tools = blocks.slice(i).filter((block, offset) => offset === 0 || blocks[i + offset - 1]?.kind === "tool")
+            .filter((block): block is Extract<Block, { kind: "tool" }> => block.kind === "tool");
+          items.push(<WorkflowBlock key={`workflow-${i}`} blocks={tools} />);
+          return items;
+        }
         const meta = b.kind === "user" ? "你" : b.kind === "assistant" ? "AlinCode" : null;
         let content;
         switch (b.kind) {
@@ -23,9 +31,6 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
           case "assistant":
             content = <AssistantBlock block={b} />;
             break;
-          case "tool":
-            content = <ToolBlock block={b} />;
-            break;
           case "approval":
             content = <ApprovalCard block={b} />;
             break;
@@ -33,8 +38,9 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
             content = <div className={`msg notice ${b.tone}`}>{b.text}</div>;
             break;
         }
-        return <article key={i} className={`message-row ${b.kind}`}>{meta ? <p className="message-meta">{meta}</p> : null}{content}</article>;
-      })}
+        items.push(<article key={i} className={`message-row ${b.kind}`}>{meta ? <p className="message-meta">{meta}</p> : null}{content}</article>);
+        return items;
+      }, [])}
       <div ref={endRef} />
     </div>
   );

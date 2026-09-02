@@ -483,6 +483,27 @@ button:disabled {
 .msg.tool { max-width: 680px; padding: .5rem .75rem; background: rgba(16, 56, 69, .38); border-color: rgba(103, 226, 212, .18); border-radius: 9px; }
 .msg.tool summary { color: var(--chat-aqua); }
 .tool-args, .tool-result { background: rgba(5, 18, 28, .56); color: var(--chat-muted); }
+
+/* ── Agent 工作流：由连续的可见工具事件组成，不展示模型内部推理 ── */
+.workflow-block { max-width: 740px; margin: -10px 0 2px; overflow: hidden; background: rgba(13, 40, 52, .62); border: 1px solid rgba(103, 226, 212, .2); border-radius: 12px; }
+.workflow-header { display: flex; width: 100%; align-items: center; gap: 9px; padding: 10px 13px; color: #d9effa; background: transparent; border: 0; border-radius: 0; font-family: inherit; text-align: left; }
+.workflow-header:hover { color: #f4fcff; background: rgba(51, 111, 124, .18); }
+.workflow-chevron { color: var(--chat-aqua); font-size: 14px; }
+.workflow-title { font-size: 12px; font-weight: 700; }
+.workflow-summary { min-width: 0; flex: 1; overflow: hidden; color: var(--chat-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.workflow-duration { padding: 3px 7px; color: #c9f7ef; background: rgba(75, 176, 160, .14); border-radius: 99px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
+.workflow-steps { padding: 0 14px 11px 38px; border-top: 1px solid rgba(114, 185, 222, .12); }
+.workflow-step { position: relative; padding: 11px 0 2px; border-left: 1px solid rgba(103, 226, 212, .22); }
+.workflow-step:last-child { border-left-color: transparent; }
+.workflow-dot { position: absolute; top: 14px; left: -5px; width: 9px; height: 9px; border: 2px solid #153749; border-radius: 50%; background: var(--chat-aqua); box-shadow: 0 0 0 3px rgba(103, 226, 212, .13); }
+.workflow-dot.is-running { background: var(--chat-accent); animation: workflow-pulse 1.25s ease-in-out infinite; }
+.workflow-dot.is-error { background: #ff8e99; }
+.workflow-step-line { display: flex; gap: 9px; padding-left: 15px; font-size: 11px; }
+.workflow-step-line strong { color: #dceef7; font-weight: 650; }
+.workflow-step-line time { margin-left: auto; color: var(--chat-faint); font-family: "Cascadia Mono", Consolas, monospace; font-size: 10px; }
+.workflow-detail { max-height: 10rem; margin: 7px 0 2px 15px; padding: 7px 9px; overflow: auto; color: var(--chat-muted); background: rgba(5, 18, 28, .56); border-radius: 7px; font: 10.5px/1.6 "Cascadia Mono", Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+.workflow-detail.result { color: #b9ddd8; }
+@keyframes workflow-pulse { 50% { box-shadow: 0 0 0 6px rgba(72, 185, 242, 0); } }
 .msg.approval { max-width: 680px; color: #e7f2f8; background: rgba(47, 47, 25, .24); border-color: rgba(246, 200, 93, .65); border-radius: 10px; }
 .msg.notice { color: var(--chat-muted); }
 

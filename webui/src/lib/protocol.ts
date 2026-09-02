@@ -4,7 +4,7 @@
 export type Block =
   | { kind: "user"; content: string }
   | { kind: "assistant"; content: string; streaming?: boolean }
-  | { kind: "tool"; name: string; args: string; state: "running" | "done"; result?: string; isError?: boolean }
+  | { kind: "tool"; name: string; args: string; state: "running" | "done"; result?: string; isError?: boolean; startedAt?: number; durationMs?: number }
   | { kind: "approval"; requestId: string; toolName: string; toolArgs: string; reason: string; state: "pending" | "resolved"; outcome?: string }
   | { kind: "notice"; text: string; tone: "info" | "error" };
 

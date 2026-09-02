@@ -79,7 +79,7 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
       return {
         ...state,
         blocks: [...seal(state.blocks),
-                 { kind: "tool", name: msg.name, args: msg.args, state: "running" }],
+                 { kind: "tool", name: msg.name, args: msg.args, state: "running", startedAt: Date.now() }],
       };
     case "tool.end": {
       // 配对策略：最近一个同名 running 工具块（与 TUI 顺序语义一致）
@@ -87,7 +87,10 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
       for (let i = blocks.length - 1; i >= 0; i--) {
         const b = blocks[i];
         if (b.kind === "tool" && b.name === msg.name && b.state === "running") {
-          const done: Block = { ...b, state: "done", result: msg.result, isError: msg.is_error };
+          const done: Block = {
+            ...b, state: "done", result: msg.result, isError: msg.is_error,
+            durationMs: b.startedAt === undefined ? undefined : Math.max(0, Date.now() - b.startedAt),
+          };
           return { ...state, blocks: [...blocks.slice(0, i), done, ...blocks.slice(i + 1)] };
         }
       }

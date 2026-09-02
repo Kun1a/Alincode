@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { chatReducer, initialChatState } from "./chatReducer";
 
 describe("chatReducer", () => {
@@ -18,5 +18,15 @@ describe("chatReducer", () => {
       model: "deepseek-chat",
       mode: "desktop",
     });
+  });
+
+  it("records a visible duration for a completed tool", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValueOnce(100).mockReturnValueOnce(250);
+    const started = chatReducer(initialChatState, { type: "tool.start", name: "read_file", args: "{}" });
+    const finished = chatReducer(started, { type: "tool.end", name: "read_file", result: "ok", is_error: false });
+    const tool = finished.blocks[0];
+
+    expect(tool).toMatchObject({ kind: "tool", startedAt: 100, durationMs: 150 });
+    now.mockRestore();
   });
 });
