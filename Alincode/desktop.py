@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 import socket
 import threading
@@ -85,6 +86,11 @@ def pick_folder() -> str | None:
         root.destroy()
 
 
+def open_directory(path: str) -> None:
+    """让用户用资源管理器添加或编辑项目级 Skill。"""
+    os.startfile(path)
+
+
 def run_desktop() -> None:
     """启动桌面窗口；关闭窗口后同步关闭临时回环服务。"""
     launch_token = secrets.token_urlsafe(32)
@@ -93,6 +99,7 @@ def run_desktop() -> None:
         auth=LocalAuth(launch_token),
         profile_store=ProfileStore(),
         directory_picker=pick_folder,
+        directory_opener=open_directory,
     )
     server = LoopbackServer(app)
     port = server.start()

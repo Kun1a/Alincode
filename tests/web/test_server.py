@@ -220,6 +220,27 @@ def test_desktop_folder_picker_returns_a_valid_directory_for_project_selection(t
     assert picked.json() == {"path": str(selected.resolve())}
 
 
+def test_desktop_skill_directory_opener_uses_the_active_project(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    opened: list[str] = []
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+        directory_opener=opened.append,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    profile = client.post("/api/profiles", json={"name": "Alin", "password": "secret"}).json()
+    project = tmp_path / "project"
+    project.mkdir()
+    ProfileService(store).set_workspace(profile["id"], project)
+
+    result = client.post("/api/profile/open-skill-directory")
+
+    expected = project / ".Alincode" / "skills"
+    assert result.json() == {"path": str(expected)}
+    assert expected.is_dir()
+    assert opened == [str(expected)]
+
+
 def test_profile_mcp_api_saves_a_stdio_server(tmp_path):
     store = ProfileStore(tmp_path / "profiles")
     client = TestClient(create_app(

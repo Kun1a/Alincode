@@ -30,5 +30,5 @@ export type ClientMsg =
   | { type: "approval.respond"; request_id: string; outcome: "allow_once" | "allow_forever" | "deny_once" }
   | { type: "turn.cancel" }
   | { type: "session.resume"; session_id: string }
-  | { type: "session.new" }
+  | { type: "session.new"; workspace?: string }
   | { type: "mode.set"; mode: "default" | "acceptEdits" | "plan" | "bypassPermissions" };

@@ -94,6 +94,24 @@ body {
 .settings-hint { color: var(--dim); font-size: .75rem; line-height: 1.5; }
 .settings-dialog footer { margin-top: 1.25rem; }
 .settings-message { color: var(--accent); font-size: .86rem; }
+.project-picker { width: min(100%, 620px); }
+.project-options { display: grid; gap: 8px; margin-top: 22px; }
+.project-option { display: flex; gap: 10px; align-items: center; min-height: 46px; padding: 10px 12px; overflow: hidden; color: var(--chat-muted); background: rgba(5, 18, 28, .52); border-color: var(--chat-line); border-radius: 9px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.project-option.active { color: #e8f8ff; background: rgba(29, 104, 143, .3); border-color: rgba(72, 185, 242, .65); }
+.project-option span { color: var(--chat-aqua); }
+.folder-button { width: 100%; margin-top: 14px; padding: 12px; color: #d4effd; background: rgba(18, 62, 86, .35); border-color: rgba(72, 185, 242, .45); border-radius: 9px; font-family: inherit; }
+.compact-primary { width: auto; margin: 0; }
+.plugins-dialog { width: min(100%, 700px); }
+.plugin-section { padding: 18px 0 4px; border-top: 1px solid var(--chat-line); }
+.plugin-section:first-of-type { margin-top: 20px; }
+.plugin-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.plugin-heading strong, .plugin-heading span { display: block; }
+.plugin-heading strong { color: var(--chat-text); font-size: 14px; }
+.plugin-heading span { margin-top: 3px; color: var(--chat-faint); font-size: 11px; }
+.plugin-heading button { padding: 7px 10px; color: #d7f2ff; background: rgba(18, 62, 86, .32); border-color: rgba(72, 185, 242, .4); border-radius: 8px; font-family: inherit; white-space: nowrap; }
+.plugins-dialog .workspace-list > div { background: rgba(5, 18, 28, .5); border-color: var(--chat-line); }
+.plugins-dialog .workspace-list b { color: #d9f4ff; }
+.nested-modal { z-index: 7; }
 @media (max-width: 760px) { .sidebar { display: none; } }
 
 /* ── 消息列表 ─────────────────────────────── */
@@ -380,6 +398,8 @@ button:disabled {
 }
 
 .new-chat:hover:not(:disabled) { color: #f4fcff; background: rgba(28, 103, 141, .35); border-color: var(--chat-accent); }
+.sidebar-plugins { margin: -7px 16px 10px; padding: 7px 12px; color: var(--chat-muted); background: transparent; border: 0; border-radius: 8px; font-family: inherit; font-size: 12px; text-align: left; }
+.sidebar-plugins:hover:not(:disabled) { color: var(--chat-text); background: rgba(57, 104, 130, .23); }
 .sidebar-label { margin: 0; padding: 11px 22px 8px; color: var(--chat-muted); font-size: 11px; letter-spacing: .12em; text-transform: none; }
 .session-list { flex: 1; padding: 0 10px; gap: 2px; align-content: start; grid-auto-rows: min-content; }
 .session-item { min-height: 0; padding: 10px 11px; color: #b9cad6; border-radius: 8px; font-family: inherit; font-size: 13px; }

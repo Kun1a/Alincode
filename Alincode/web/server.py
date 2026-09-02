@@ -37,6 +37,7 @@ def create_app(
     auth: LocalAuth | None = None,
     profile_store: ProfileStore | None = None,
     directory_picker: Callable[[], str | None] | None = None,
+    directory_opener: Callable[[str], None] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="AlinCode WebUI")
     sessions_dir = os.path.join(ctx.workspace, ".Alincode", "sessions") if ctx else None
@@ -284,6 +285,19 @@ def create_app(
             {"name": skill.meta.name, "description": skill.meta.description, "source": skill.source.value}
             for skill in Catalog.load(workspace).list()
         ]
+
+    @app.post("/api/profile/open-skill-directory")
+    async def open_skill_directory(request: Request) -> dict[str, str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        workspace = profile_service.workspace(profile_id)
+        if workspace is None:
+            raise HTTPException(status_code=400, detail="请先选择项目目录")
+        path = Path(workspace) / ".Alincode" / "skills"
+        path.mkdir(parents=True, exist_ok=True)
+        if directory_opener is not None:
+            directory_opener(str(path))
+        return {"path": str(path)}
 
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:

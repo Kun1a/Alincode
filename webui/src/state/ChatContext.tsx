@@ -15,7 +15,7 @@ interface ChatApi {
   respondApproval: (requestId: string, outcome: "allow_once" | "allow_forever" | "deny_once") => void;
   cancelTurn: () => void;
   resumeSession: (sessionId: string) => void;
-  newSession: () => void;
+  newSession: (workspace?: string) => void;
   setMode: (mode: "default" | "acceptEdits" | "plan" | "bypassPermissions") => void;
 }
 
@@ -77,7 +77,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       send({ type: "approval.respond", request_id: requestId, outcome }),
     cancelTurn: () => send({ type: "turn.cancel" }),
     resumeSession: (sessionId) => send({ type: "session.resume", session_id: sessionId }),
-    newSession: () => send({ type: "session.new" }),
+    newSession: (workspace) => send({ type: "session.new", workspace }),
     setMode: (mode) => send({ type: "mode.set", mode }),
   }), [state]);
 
