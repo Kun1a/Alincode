@@ -48,8 +48,11 @@ def project_event(ev: Event, approvals: dict[str, ApprovalRequest]) -> list[dict
         if t.phase is Phase.START:
             out.append({"type": "tool.start", "name": t.name, "args": t.args})
         else:
-            out.append({"type": "tool.end", "name": t.name,
-                        "result": t.result, "is_error": t.is_error})
+            message = {"type": "tool.end", "name": t.name,
+                       "result": t.result, "is_error": t.is_error}
+            if t.duration_ms is not None:
+                message["duration_ms"] = t.duration_ms
+            out.append(message)
     if ev.approval is not None:
         rid = f"a{next(_request_counter)}"
         approvals[rid] = ev.approval
@@ -87,4 +90,6 @@ def project_messages(msgs: list[Message]) -> list[dict]:
                     b["state"] = "done"
                     b["result"] = tr.content[:500]
                     b["isError"] = tr.is_error
+                    if tr.duration_ms is not None:
+                        b["durationMs"] = tr.duration_ms
     return blocks

@@ -4,7 +4,7 @@ import datetime
 import json
 import time
 
-from Alincode.conversation import Message
+from Alincode.conversation import Message, ToolCall, ToolResult
 from Alincode.session.writer import Writer
 from Alincode.session.load import load_session, _truncate_orphaned_tool_calls
 from Alincode.session.list import list_sessions
@@ -25,6 +25,18 @@ def test_writer_append_and_read(tmp_path):
     assert data["role"] == "user"
     assert data["content"] == "hello"
     assert data["model"] == "test-model"
+
+
+def test_writer_preserves_tool_duration(tmp_path):
+    writer = Writer(str(tmp_path))
+    writer.append(Message(
+        role="tool",
+        tool_calls=[ToolCall(id="t1", name="read_file", input="{}")],
+        tool_results=[ToolResult(tool_call_id="t1", content="text", duration_ms=125)],
+    ))
+    writer.close()
+
+    assert load_session(str(tmp_path))[0].tool_results[0].duration_ms == 125
 
 
 def test_writer_compact_marker(tmp_path):

@@ -39,6 +39,7 @@ class ToolResult:
     tool_call_id: str  # 对应 ToolCall.id
     content: str       # 执行产出（成功内容或结构化错误文本）
     is_error: bool = False  # 是否为错误结果
+    duration_ms: int | None = None  # 工具实际执行耗时，供会话恢复和 Web 工作流展示
 
 
 @dataclass

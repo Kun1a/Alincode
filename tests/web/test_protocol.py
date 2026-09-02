@@ -15,12 +15,14 @@ def test_text_delta():
 
 def test_tool_start_end():
     start = Event(tool=ToolEvent(name="bash", args='{"cmd":"ls"}', phase=Phase.START))
-    end = Event(tool=ToolEvent(name="bash", phase=Phase.END, result="ok", is_error=False))
+    end = Event(tool=ToolEvent(name="bash", phase=Phase.END, result="ok", is_error=False,
+                               duration_ms=125))
     assert project_event(start, {}) == [
         {"type": "tool.start", "name": "bash", "args": '{"cmd":"ls"}'}
     ]
     assert project_event(end, {}) == [
-        {"type": "tool.end", "name": "bash", "result": "ok", "is_error": False}
+        {"type": "tool.end", "name": "bash", "result": "ok", "is_error": False,
+         "duration_ms": 125}
     ]
 
 
@@ -78,3 +80,12 @@ def test_project_messages_pairs_tool_calls_with_results():
     assert blocks[1]["state"] == "done"
     assert blocks[1]["result"] == "written"
     assert blocks[2] == {"kind": "assistant", "content": "完成了"}
+
+
+def test_project_messages_restores_persisted_tool_duration():
+    msgs = [
+        Message(role="assistant", tool_calls=[ToolCall(id="t1", name="read_file", input="{}")]),
+        Message(role="tool", tool_results=[ToolResult(tool_call_id="t1", content="text", duration_ms=125)]),
+    ]
+
+    assert project_messages(msgs)[0]["durationMs"] == 125

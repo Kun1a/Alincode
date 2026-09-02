@@ -89,13 +89,15 @@ export function chatReducer(state: ChatState, msg: ServerMsg | LocalMsg): ChatSt
         if (b.kind === "tool" && b.name === msg.name && b.state === "running") {
           const done: Block = {
             ...b, state: "done", result: msg.result, isError: msg.is_error,
-            durationMs: b.startedAt === undefined ? undefined : Math.max(0, Date.now() - b.startedAt),
+            durationMs: msg.duration_ms ?? (b.startedAt === undefined
+              ? undefined : Math.max(0, Date.now() - b.startedAt)),
           };
           return { ...state, blocks: [...blocks.slice(0, i), done, ...blocks.slice(i + 1)] };
         }
       }
       return { ...state, blocks: [...blocks,
-        { kind: "tool", name: msg.name, args: "", state: "done", result: msg.result, isError: msg.is_error }] };
+        { kind: "tool", name: msg.name, args: "", state: "done", result: msg.result,
+          isError: msg.is_error, durationMs: msg.duration_ms }] };
     }
     case "approval.request":
       return {

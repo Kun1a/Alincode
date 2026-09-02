@@ -11,6 +11,7 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [blocks]);
 
+  let assistantLabelShown = false;
   return (
     <div className="message-list">
       {blocks.reduce<React.ReactNode[]>((items, b, i) => {
@@ -22,7 +23,10 @@ export function MessageList({ blocks }: { blocks: Block[] }) {
           items.push(<WorkflowBlock key={`workflow-${i}`} blocks={tools} />);
           return items;
         }
-        const meta = b.kind === "user" ? "你" : b.kind === "assistant" ? "AlinCode" : null;
+        if (b.kind === "user") assistantLabelShown = false;
+        const meta = b.kind === "user" ? "你"
+          : b.kind === "assistant" && !assistantLabelShown ? "AlinCode" : null;
+        if (b.kind === "assistant") assistantLabelShown = true;
         let content;
         switch (b.kind) {
           case "user":

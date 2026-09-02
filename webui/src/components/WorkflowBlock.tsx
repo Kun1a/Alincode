@@ -18,9 +18,12 @@ export function WorkflowBlock({ blocks }: { blocks: Tool[] }) {
   const firstStartedAt = first?.startedAt;
   const lastStartedAt = last?.startedAt;
   const lastDuration = last?.durationMs;
-  const total = firstStartedAt === undefined || lastStartedAt === undefined || lastDuration === undefined
-    ? undefined
-    : Math.max(0, lastStartedAt + lastDuration - firstStartedAt);
+  const measuredDurations = blocks.map((block) => block.durationMs).filter((value): value is number => value !== undefined);
+  const total = firstStartedAt !== undefined && lastStartedAt !== undefined && lastDuration !== undefined
+    ? Math.max(0, lastStartedAt + lastDuration - firstStartedAt)
+    : measuredDurations.length === blocks.length
+      ? measuredDurations.reduce((sum, value) => sum + value, 0)
+      : undefined;
   const summary = running ? "正在分析并执行" : errors ? `${errors} 个步骤失败` : `已完成 ${completed} 个步骤`;
 
   return (

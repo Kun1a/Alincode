@@ -37,11 +37,16 @@ class Entry:
                 for tc in msg.tool_calls
             ]
         if msg.tool_results:
-            entry.tool_results = [
-                {"tool_call_id": tr.tool_call_id, "content": tr.content,
-                 "is_error": tr.is_error}
-                for tr in msg.tool_results
-            ]
+            entry.tool_results = []
+            for tr in msg.tool_results:
+                result = {
+                    "tool_call_id": tr.tool_call_id,
+                    "content": tr.content,
+                    "is_error": tr.is_error,
+                }
+                if tr.duration_ms is not None:
+                    result["duration_ms"] = tr.duration_ms
+                entry.tool_results.append(result)
         return entry
 
     @classmethod

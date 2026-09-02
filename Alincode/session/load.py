@@ -66,14 +66,17 @@ def _lines_to_messages(lines: list[dict]) -> list[Message]:
 
         tool_results = None
         if isinstance(trs, list):
-            tool_results = [
-                ToolResult(
+            tool_results = []
+            for tr in trs:
+                duration_ms = tr.get("duration_ms")
+                if not isinstance(duration_ms, int) or isinstance(duration_ms, bool) or duration_ms < 0:
+                    duration_ms = None
+                tool_results.append(ToolResult(
                     tool_call_id=tr.get("tool_call_id", ""),
                     content=tr.get("content", ""),
                     is_error=tr.get("is_error", False),
-                )
-                for tr in trs
-            ]
+                    duration_ms=duration_ms,
+                ))
 
         msgs.append(Message(
             role=role,

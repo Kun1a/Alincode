@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -82,6 +83,7 @@ class ToolEvent:
     phase: Phase = Phase.START
     result: str = ""
     is_error: bool = False
+    duration_ms: int | None = None
 
 
 @dataclass
@@ -334,7 +336,8 @@ class Agent:
                             pass
 
             tool_results = [
-                ToolResult(tool_call_id=call.id, content=br.result.content, is_error=br.result.is_error)
+                ToolResult(tool_call_id=call.id, content=br.result.content,
+                           is_error=br.result.is_error, duration_ms=br.duration_ms)
                 for call, br in zip(tool_calls, batch_results)
             ]
             conv.add_tool_results(tool_calls, tool_results)
@@ -807,6 +810,7 @@ class Agent:
                     tool_call_id=call.id,
                     content=br.result.content,
                     is_error=br.result.is_error,
+                    duration_ms=br.duration_ms,
                 )
                 for call, br in zip(tool_calls, batch_results)
             ]
@@ -950,6 +954,14 @@ class Agent:
         self, batch_results: list[_BatchResult], cancel: asyncio.Event,
     ) -> bool:
         """执行已批准的工具——保序分批并发。"""
+        async def execute_timed(batch_result: _BatchResult) -> Result:
+            started_at = time.monotonic()
+            result = await self._registry.execute(
+                batch_result.call.name, batch_result.call.input, DEFAULT_TIMEOUT,
+            )
+            batch_result.duration_ms = round((time.monotonic() - started_at) * 1000)
+            return result
+
         pending_exec: list[tuple[int, _BatchResult]] = [
             (i, br) for i, br in enumerate(batch_results)
             if br.call and not br.pending
@@ -971,17 +983,15 @@ class Agent:
                 batch = pending_exec[pe_i:batch_end]
                 if len(batch) == 1:
                     _, br2 = batch[0]
-                    r = await self._registry.execute(br2.call.name, br2.call.input, DEFAULT_TIMEOUT)
+                    r = await execute_timed(br2)
                     br2.result = r
                     br2.events.append(ToolEvent(
                         name=br2.call.name, args=_args_preview(br2.call), phase=Phase.END,
-                        result=_result_preview(r), is_error=r.is_error,
+                        result=_result_preview(r), is_error=r.is_error, duration_ms=br2.duration_ms,
                     ))
                 else:
                     async def _ro_exec(bri: _BatchResult) -> tuple[_BatchResult, Result]:
-                        return bri, await self._registry.execute(
-                            bri.call.name, bri.call.input, DEFAULT_TIMEOUT,
-                        )
+                        return bri, await execute_timed(bri)
                     tasks = [asyncio.create_task(_ro_exec(bri)) for _, bri in batch]
                     for coro in asyncio.as_completed(tasks):
                         if cancel.is_set():
@@ -994,15 +1004,15 @@ class Agent:
                         r = bri.result
                         bri.events.append(ToolEvent(
                             name=bri.call.name, args=_args_preview(bri.call), phase=Phase.END,
-                            result=_result_preview(r), is_error=r.is_error,
+                            result=_result_preview(r), is_error=r.is_error, duration_ms=bri.duration_ms,
                         ))
                 pe_i = batch_end
             else:
-                r = await self._registry.execute(call.name, call.input, DEFAULT_TIMEOUT)
+                r = await execute_timed(br)
                 br.result = r
                 br.events.append(ToolEvent(
                     name=call.name, args=_args_preview(call), phase=Phase.END,
-                    result=_result_preview(r), is_error=r.is_error,
+                    result=_result_preview(r), is_error=r.is_error, duration_ms=br.duration_ms,
                 ))
                 pe_i += 1
         return False
@@ -1014,6 +1024,7 @@ class _BatchResult:
     events: list[ToolEvent] = field(default_factory=list)
     pending: ApprovalRequest | None = None
     call: ToolCall | None = None
+    duration_ms: int | None = None
 
     def _build_batch_results(
         self,

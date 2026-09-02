@@ -14,7 +14,7 @@ export type ServerMsg =
   | { type: "history.append"; block: Block }
   | { type: "text.delta"; delta: string }
   | { type: "tool.start"; name: string; args: string }
-  | { type: "tool.end"; name: string; result: string; is_error: boolean }
+  | { type: "tool.end"; name: string; result: string; is_error: boolean; duration_ms?: number }
   | { type: "approval.request"; request_id: string; tool_name: string; tool_args: string; reason: string }
   | { type: "approval.resolved"; request_id: string; outcome: string }
   | { type: "usage"; input_tokens: number; output_tokens: number; cache_write: number; cache_read: number }

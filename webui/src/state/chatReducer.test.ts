@@ -29,4 +29,13 @@ describe("chatReducer", () => {
     expect(tool).toMatchObject({ kind: "tool", startedAt: 100, durationMs: 150 });
     now.mockRestore();
   });
+
+  it("uses the server-measured duration when it is available", () => {
+    const started = chatReducer(initialChatState, { type: "tool.start", name: "read_file", args: "{}" });
+    const finished = chatReducer(started, {
+      type: "tool.end", name: "read_file", result: "ok", is_error: false, duration_ms: 420,
+    });
+
+    expect(finished.blocks[0]).toMatchObject({ kind: "tool", durationMs: 420 });
+  });
 });

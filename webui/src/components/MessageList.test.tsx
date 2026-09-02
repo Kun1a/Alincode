@@ -15,4 +15,14 @@ describe("MessageList", () => {
     expect(html).toContain("grep");
     expect(html).toContain("已完成");
   });
+
+  it("shows the assistant label only once within a user turn", () => {
+    const html = renderToStaticMarkup(<MessageList blocks={[
+      { kind: "user", content: "请处理" },
+      { kind: "assistant", content: "我先检查文件。" },
+      { kind: "assistant", content: "检查完成。" },
+    ]} />);
+
+    expect(html.match(/AlinCode/g)).toHaveLength(1);
+  });
 });
