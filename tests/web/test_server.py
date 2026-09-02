@@ -106,7 +106,7 @@ def test_desktop_ws_requires_an_unlocked_profile_and_uses_private_history(tmp_pa
         assert info["model"] == "profile-model"
         assert info["workspace"] == str(workspace.resolve())
 
-    assert any(store.sessions_dir(profile["id"]).iterdir())
+    assert not any(store.sessions_dir(profile["id"]).iterdir())
 
 
 def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
@@ -175,6 +175,30 @@ def test_desktop_profile_api_requires_a_one_time_launch_token(tmp_path):
         "path": str(workspace.resolve()),
     }
     assert client.get("/api/profile/workspace").json() == {"path": str(workspace.resolve())}
+
+
+def test_profile_workspaces_can_keep_multiple_projects_and_switch_default(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    client = TestClient(create_app(
+        _ctx(tmp_path, FakeProvider([[]])), auth=LocalAuth("launch"), profile_store=store,
+    ))
+    assert client.post("/api/auth/exchange", json={"token": "launch"}).status_code == 204
+    client.post("/api/profiles", json={"name": "Alin", "password": "secret"})
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    project_a.mkdir()
+    project_b.mkdir()
+
+    saved = client.put("/api/profile/workspaces", json={
+        "paths": [str(project_a), str(project_b)], "active_path": str(project_b),
+    })
+
+    assert saved.status_code == 200
+    assert saved.json() == {
+        "paths": [str(project_a.resolve()), str(project_b.resolve())],
+        "active_path": str(project_b.resolve()),
+    }
+    assert client.get("/api/profile/workspaces").json() == saved.json()
 
 
 def test_profiles_keep_provider_budget_and_history_isolated(tmp_path):

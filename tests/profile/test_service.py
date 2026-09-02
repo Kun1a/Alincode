@@ -73,6 +73,24 @@ def test_workspace_must_be_an_existing_directory(tmp_path):
         service.set_workspace(profile.id, tmp_path / "missing")
 
 
+def test_profile_can_keep_multiple_workspaces_and_choose_an_active_one(tmp_path):
+    store = ProfileStore(tmp_path / "profiles")
+    profile = store.create("Alin", "correct-password")
+    service = ProfileService(store)
+    project_a = tmp_path / "project-a"
+    project_b = tmp_path / "project-b"
+    project_a.mkdir()
+    project_b.mkdir()
+
+    saved = service.save_workspaces(profile.id, [project_a, project_b], active_path=project_b)
+
+    assert saved == {
+        "paths": [str(project_a.resolve()), str(project_b.resolve())],
+        "active_path": str(project_b.resolve()),
+    }
+    assert service.workspace(profile.id) == str(project_b.resolve())
+
+
 def test_dpapi_refuses_non_windows_instead_of_storing_plaintext(monkeypatch):
     monkeypatch.setattr(secrets.os, "name", "posix")
 

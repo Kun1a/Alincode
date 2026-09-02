@@ -216,6 +216,28 @@ def create_app(
         assert profile_service is not None
         return {"path": profile_service.workspace(profile_id) or ""}
 
+    @app.put("/api/profile/workspaces")
+    async def save_workspaces(request: Request) -> dict[str, list[str] | str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        data = await request.json()
+        paths = data.get("paths") if isinstance(data, dict) else None
+        active_path = data.get("active_path") if isinstance(data, dict) else None
+        if not isinstance(paths, list) or not paths or not all(isinstance(path, str) for path in paths):
+            raise HTTPException(status_code=400, detail="项目目录列表不能为空")
+        if not isinstance(active_path, str) or not active_path.strip():
+            raise HTTPException(status_code=400, detail="当前项目目录不能为空")
+        try:
+            return profile_service.save_workspaces(profile_id, paths, active_path=active_path)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.get("/api/profile/workspaces")
+    async def workspaces(request: Request) -> dict[str, list[str] | str]:
+        _, profile_id = _unlocked_profile(request)
+        assert profile_service is not None
+        return profile_service.workspaces(profile_id)
+
     @app.get("/api/sessions")
     async def sessions(request: Request) -> list[dict]:
         return [

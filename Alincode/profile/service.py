@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from collections.abc import Iterable
 
 from Alincode.config import ProviderConfig
 from Alincode.profile.secrets import protect, unprotect
@@ -54,20 +55,53 @@ class ProfileService:
         self._write_usage(profile_id, status)
 
     def set_workspace(self, profile_id: str, workspace: str | Path) -> None:
-        """保存 Profile 的项目目录，只接受已存在的目录。"""
+        """兼容旧接口：保存并切换到指定项目目录。"""
+        current = self.workspaces(profile_id)
+        self.save_workspaces(profile_id, [*current["paths"], workspace], active_path=workspace)
+
+    def workspace(self, profile_id: str) -> str | None:
+        """返回当前项目目录；尚未设置时为 None。"""
+        return self.workspaces(profile_id)["active_path"] or None
+
+    def workspaces(self, profile_id: str) -> dict[str, list[str] | str]:
+        """返回 Profile 的项目目录列表，并兼容旧版单目录数据。"""
+        profile_dir = self._store.profile_dir(profile_id)
+        path = profile_dir / "workspaces.json"
+        if path.is_file():
+            data = self._read_json(path)
+            paths = data.get("paths", [])
+            active_path = data.get("active_path", "")
+            if isinstance(paths, list) and all(isinstance(item, str) for item in paths) and isinstance(active_path, str):
+                return {"paths": paths, "active_path": active_path}
+        legacy = profile_dir / "workspace.json"
+        if legacy.is_file():
+            workspace = self._read_json(legacy).get("path", "")
+            if isinstance(workspace, str) and workspace:
+                return {"paths": [workspace], "active_path": workspace}
+        return {"paths": [], "active_path": ""}
+
+    def save_workspaces(
+        self, profile_id: str, workspaces: Iterable[str | Path], *, active_path: str | Path,
+    ) -> dict[str, list[str] | str]:
+        """保存去重后的项目目录列表，并指定其中一个为当前目录。"""
+        paths: list[str] = []
+        for workspace in workspaces:
+            resolved = self._validated_workspace(workspace)
+            if resolved not in paths:
+                paths.append(resolved)
+        active = self._validated_workspace(active_path)
+        if active not in paths:
+            paths.append(active)
+        data = {"paths": paths, "active_path": active}
+        self._write_json(self._store.profile_dir(profile_id) / "workspaces.json", data)
+        return data
+
+    @staticmethod
+    def _validated_workspace(workspace: str | Path) -> str:
         path = Path(workspace).expanduser().resolve()
         if not path.is_dir():
             raise ValueError("项目目录不存在或不是目录")
-        self._write_json(self._store.profile_dir(profile_id) / "workspace.json", {
-            "path": str(path),
-        })
-
-    def workspace(self, profile_id: str) -> str | None:
-        """返回 Profile 的项目目录；尚未设置时为 None。"""
-        path = self._store.profile_dir(profile_id) / "workspace.json"
-        if not path.is_file():
-            return None
-        return self._read_json(path)["path"]
+        return str(path)
 
     def record_usage(self, profile_id: str, *, input_tokens: int, output_tokens: int) -> None:
         if input_tokens < 0 or output_tokens < 0:
