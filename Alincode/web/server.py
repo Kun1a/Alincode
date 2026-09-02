@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import mimetypes
 import os
+import shutil
 import sys
 from pathlib import Path
 from collections.abc import Callable, Sequence
@@ -72,6 +74,13 @@ def create_app(
         _, profile_id = _unlocked_profile(request)
         assert profile_store is not None
         return str(profile_store.sessions_dir(profile_id))
+
+    def _session_dir(request: Request, session_id: str) -> Path:
+        root = Path(_history_dir(request)).resolve()
+        candidate = (root / session_id).resolve()
+        if candidate.parent != root or candidate.name != session_id or not candidate.is_dir():
+            raise HTTPException(status_code=404, detail="会话不存在")
+        return candidate
 
     @app.get("/api/health")
     async def health() -> dict:
@@ -329,6 +338,28 @@ def create_app(
         if not os.path.isdir(sdir):
             return []
         return project_messages(load_session(sdir))
+
+    @app.patch("/api/sessions/{session_id}")
+    async def rename_session(session_id: str, request: Request) -> dict[str, str]:
+        data = await request.json()
+        title = data.get("title") if isinstance(data, dict) else None
+        if not isinstance(title, str) or not (title := title.strip()):
+            raise HTTPException(status_code=400, detail="标题不能为空")
+        if len(title) > 80:
+            raise HTTPException(status_code=400, detail="标题不能超过 80 个字符")
+        session_dir = _session_dir(request, session_id)
+        metadata_path = session_dir / "session.json"
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            metadata = {}
+        metadata["title"] = title
+        metadata_path.write_text(json.dumps(metadata, ensure_ascii=False), encoding="utf-8")
+        return {"id": session_id, "title": title}
+
+    @app.delete("/api/sessions/{session_id}", status_code=204)
+    async def delete_session(session_id: str, request: Request) -> None:
+        shutil.rmtree(_session_dir(request, session_id))
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:

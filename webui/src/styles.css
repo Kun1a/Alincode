@@ -402,9 +402,17 @@ button:disabled {
 .sidebar-plugins:hover:not(:disabled) { color: var(--chat-text); background: rgba(57, 104, 130, .23); }
 .sidebar-label { margin: 0; padding: 11px 22px 8px; color: var(--chat-muted); font-size: 11px; letter-spacing: .12em; text-transform: none; }
 .session-list { flex: 1; padding: 0 10px; gap: 2px; align-content: start; grid-auto-rows: min-content; }
-.session-item { min-height: 0; padding: 10px 11px; color: #b9cad6; border-radius: 8px; font-family: inherit; font-size: 13px; }
-.session-item:hover:not(:disabled) { color: var(--chat-text); background: rgba(57, 104, 130, .23); }
-.session-item.active { color: #edfaff; background: linear-gradient(90deg, rgba(33, 111, 148, .62), rgba(21, 65, 89, .4)); }
+.session-row { display: flex; align-items: center; min-width: 0; border-radius: 8px; }
+.session-row:hover { background: rgba(57, 104, 130, .23); }
+.session-row.active { background: linear-gradient(90deg, rgba(33, 111, 148, .62), rgba(21, 65, 89, .4)); }
+.session-item { flex: 1; min-width: 0; min-height: 0; padding: 10px 6px 10px 11px; overflow: hidden; color: #b9cad6; background: transparent; border: 0; border-radius: 8px; font-family: inherit; font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.session-row.active .session-item { color: #edfaff; }
+.session-more { width: 27px; margin-right: 4px; padding: 2px; color: var(--chat-muted); background: transparent; border: 0; font-size: 16px; }
+.history-dialog { width: min(100%, 420px); }
+.history-actions { display: grid; gap: 6px; margin-top: 18px; }
+.history-actions button { border: 0; text-align: left; }
+.history-delete, .history-delete-button { color: #ffd1d5; }
+.history-delete-button { padding: 8px 14px; background: #ff9ca4; border: 0; border-radius: 8px; color: #49141a; font-weight: 700; }
 .empty-history { padding: 12px; color: var(--chat-faint); font-size: 12px; }
 
 .sidebar-profile {

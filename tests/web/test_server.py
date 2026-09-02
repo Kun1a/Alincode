@@ -50,6 +50,23 @@ def test_health_and_sessions(tmp_path):
     assert blocks[0] == {"kind": "user", "content": "旧话题"}
 
 
+def test_session_history_can_be_renamed_and_deleted(tmp_path):
+    session_id = "20260815-000000-ab"
+    session_dir = tmp_path / ".Alincode" / "sessions" / session_id
+    session_dir.mkdir(parents=True)
+    (session_dir / "conversation.jsonl").write_text(
+        json.dumps({"role": "user", "content": "自动生成的标题", "ts": 1}) + "\n", encoding="utf-8",
+    )
+    client = TestClient(create_app(_ctx(tmp_path, FakeProvider([[]]))))
+
+    renamed = client.patch(f"/api/sessions/{session_id}", json={"title": "我的项目分析"})
+
+    assert renamed.status_code == 200
+    assert client.get("/api/sessions").json()[0]["title"] == "我的项目分析"
+    assert client.delete(f"/api/sessions/{session_id}").status_code == 204
+    assert client.get("/api/sessions").json() == []
+
+
 def test_frontend_module_is_served_as_javascript_when_system_mime_is_missing(tmp_path, monkeypatch):
     frontend = tmp_path / "dist"
     frontend.mkdir()

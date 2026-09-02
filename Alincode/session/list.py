@@ -42,6 +42,7 @@ def list_sessions(sessions_dir: str) -> list[SessionInfo]:
 
         stat = jsonl.stat()
         title, model = _read_first_user(jsonl)
+        title = _custom_title(child) or title
 
         result.append(SessionInfo(
             id=child.name,
@@ -77,3 +78,13 @@ def _read_first_user(jsonl_path: Path) -> tuple[str, str]:
     except Exception:
         pass
     return ("(无标题)", "")
+
+
+def _custom_title(session_dir: Path) -> str:
+    """用户重命名存于会话元数据，缺失时沿用首条用户消息自动标题。"""
+    try:
+        data = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ""
+    title = data.get("title") if isinstance(data, dict) else None
+    return title.strip() if isinstance(title, str) else ""
