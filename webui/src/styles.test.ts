@@ -14,4 +14,8 @@ describe("desktop chat stylesheet", () => {
     expect(stylesheet).toContain("align-content: start");
     expect(stylesheet).toContain("grid-auto-rows: min-content");
   });
+
+  it("keeps expanded workflow steps at their content height", () => {
+    expect(stylesheet).toMatch(/\.workflow-block\s*\{[^}]*flex:\s*0\s+0\s+auto/);
+  });
 });

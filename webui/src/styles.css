@@ -485,7 +485,7 @@ button:disabled {
 .tool-args, .tool-result { background: rgba(5, 18, 28, .56); color: var(--chat-muted); }
 
 /* ── Agent 工作流：由连续的可见工具事件组成，不展示模型内部推理 ── */
-.workflow-block { max-width: 740px; margin: -10px 0 2px; overflow: hidden; background: rgba(13, 40, 52, .62); border: 1px solid rgba(103, 226, 212, .2); border-radius: 12px; }
+.workflow-block { flex: 0 0 auto; max-width: 740px; margin: -10px 0 2px; overflow: hidden; background: rgba(13, 40, 52, .62); border: 1px solid rgba(103, 226, 212, .2); border-radius: 12px; }
 .workflow-header { display: flex; width: 100%; align-items: center; gap: 9px; padding: 10px 13px; color: #d9effa; background: transparent; border: 0; border-radius: 0; font-family: inherit; text-align: left; }
 .workflow-header:hover { color: #f4fcff; background: rgba(51, 111, 124, .18); }
 .workflow-chevron { color: var(--chat-aqua); font-size: 14px; }
